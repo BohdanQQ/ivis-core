@@ -2,8 +2,9 @@
 
 import React, {Component} from "react";
 import PropTypes from 'prop-types';
-import {LinkButton, requiresAuthenticatedUser, withPageHelpers} from "../../lib/page";
-import {Panel} from "../../lib/panel";
+import axios from "axios";
+import {getUrl} from "../../lib/urls";
+import { requiresAuthenticatedUser, withPageHelpers} from "../../lib/page";
 import {
     Button,
     ButtonRow,
@@ -11,17 +12,10 @@ import {
     Form,
     FormSendMethod,
     InputField,
-    TableSelect,
-    TextArea,
     withForm,
     withFormErrorHandlers
 } from "../../lib/form";
 import {withErrorHandling} from "../../lib/error-handling";
-import interoperableErrors from "../../../../shared/interoperable-errors";
-import passwordValidator from "../../../../shared/password-validator";
-import validators from "../../../../shared/validators";
-import {NamespaceSelect} from "../../lib/namespace";
-import {DeleteModalDialog} from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 import {withTranslation} from "../../lib/i18n";
 
@@ -56,6 +50,7 @@ export default class CredentialsForm extends Component {
     }
 
     componentDidMount() {
+        this.mounted = true;
         if (this.props.description.fields) {
             // creating a dummy "entity"
             let values = {
@@ -71,6 +66,10 @@ export default class CredentialsForm extends Component {
             console.log(this.props.description);
             throw new Error("The service credential description is malformed.");
         }
+    }
+
+    componenWillUnmount() {
+        this.mounted = false;
     }
 
     localValidateFormValues(state) {
@@ -131,11 +130,32 @@ export default class CredentialsForm extends Component {
         this.setState((prevstate) => {return {helpShown: !prevstate.helpShown};});
     }
 
+    checkCredentials() {
+        const t = this.props.t;
+        const {serviceId, check} = this.props.description;
+        let {proxyRequest} = check;
+        this.setFormStatusMessage('info', t('Checking credentials ...'));
+
+        axios.post(getUrl(`rest/cloud/${serviceId}/proxy/${proxyRequest}`))
+            .then(response => response.data.ok)
+            .catch(() => false)
+            .then(areCredsValid => {
+                if(!this.mounted)
+                    return;
+                if(areCredsValid) {
+                    this.setFormStatusMessage('success', t('Credentials verified!'));
+                }
+                else {
+                    this.setFormStatusMessage('warning', t('Credentials are either incorrect, the service is unavailable ' +
+                        'or the server does not provide full support to this cloud service!'));
+                }
+            });
+    }
+
     render() {
 
         const t = this.props.t;
-        // `check` is an object {link, expectedRes} used with the "check credentials button" (to be used)
-        const {serviceId, fields, check, helpHTML} = this.props.description;
+        const {serviceId, fields, helpHTML} = this.props.description;
         const showHelp = this.state.helpShown;
 
         return (
@@ -148,8 +168,9 @@ export default class CredentialsForm extends Component {
 
                 <ButtonRow>
                     <Button type="submit" className="btn-primary" icon="check" label={t('Save')}/>
-                    {/* TODO: implement checking - similar to submitting?*/ }
-                    <Button type="button" className="btn-primary" icon="plug" label={t('Check Credentials')}/>
+                    <span  onClick={() => this.checkCredentials()}>
+                        <Button type="button" className="btn-primary" icon="plug" label={t('Check Credentials')}/>
+                    </span>
                 </ButtonRow>
 
             </Form>

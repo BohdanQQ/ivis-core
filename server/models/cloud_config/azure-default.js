@@ -5,9 +5,10 @@ const {getSubscriptions, getLocationList, getVmSizes} = require('../../lib/cloud
 const listSubscriptions = 'subscription-list';
 const listLocations = 'location-list';
 const listVMsizes = 'vmsize-list';
+const checkCredentials = 'check-creds';
 const proxyObj = {};
 
-proxyObj[listSubscriptions] = async ({clientId, tenantId, clientSecret}, extraData) => {
+proxyObj[listSubscriptions] = async ({clientId, tenantId, clientSecret}) => {
     const tokenProvider = new TokenProvider(clientId, tenantId, clientSecret);
     const subscriptions = await getSubscriptions(tokenProvider);
     const result = subscriptions.map(sub => [sub.displayName, sub.subscriptionId]);
@@ -27,6 +28,12 @@ proxyObj[listVMsizes] = async ({clientId, tenantId, clientSecret}, {subscription
     return result;
 };
 
+proxyObj[checkCredentials] = async (credentials) => {
+    let failed = false;
+    await proxyObj[listSubscriptions](credentials).catch(() => failed = true);
+    return {ok: !failed};
+}
+
 const azureDefault = {
     getCredDesc: () => (
         // this object defines the credentials
@@ -41,8 +48,9 @@ const azureDefault = {
                 {type: "text", name: "clientSecret", label: "Client Secret"},
             ],
             check: {
-                link: null,
-                expected: null
+                proxyRequest: checkCredentials,
+                // TODO: remove
+                expected: {ok: true}
             },
             helpHTML: "<ol><li>Start your computer</li><li>Start your browser</li><li>Get the credentials</li></ol>"
         }),
