@@ -59,10 +59,14 @@ function _handleAsyncOperation(promise, config, resolveIndicator) {
         .then(response => {
             if(response.headers['azure-asyncoperation'] || response.headers['location'])
             {
+		let asyncOpNullOrUndef = response.headers['azure-asyncoperation'] == null || response.headers['azure-asyncoperation'] == undefined;
+		let loc = asyncOpNullOrUndef ? response.headers['location'] : response.headers['azure-asyncoperation'];
+		let retryAfterNullOrUndef = response.headers['retry-after'] == null || response.headers['retry-after'] == undefined;
+		let seconds = retryAfterNullOrUndef ? 10 : Number(response.headers['retry-after']);
                 return _initiateStatusRefresh
                 ({
-                    location: response.headers['azure-asyncoperation'] ?? response.headers['location'],
-                    retryAfterSeconds: Number(response.headers['retry-after'] ?? 10)
+                    location: loc,
+                    retryAfterSeconds: seconds
                 }, config, response.data);
             }
             else if (response.data && response.data.provisioningState)

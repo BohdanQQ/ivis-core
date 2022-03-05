@@ -59,7 +59,8 @@ async function getLocationList(subscriptionId, tokenProvider) {
     locationNames = locationNames.filter((name) => locationDescriptions.find((loc => loc.name === name)));
     return locationNames.map(name => {
         const found = locationDescriptions.find((loc => loc.name === name)).displayName;
-        return [found ?? 'No Name Found', name];
+        let retFound = (found == null || found == undefined) ? 'No name found' : found; 
+	return [retFound, name];
     });
 }
 
