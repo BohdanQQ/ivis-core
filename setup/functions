@@ -232,6 +232,9 @@ function installPrerequisities {
     systemctl enable ${redisService}
 
     systemctl start elasticsearch
+    sleep 10 # should be enough time to start elasticsearch
+    # can also be put into a loop to wait for the service, though
+    # I am not sure whether we want to have the possibility of nonterminating program
     systemctl enable elasticsearch
 }
 
