@@ -219,7 +219,7 @@ function installPrerequisities {
 			rm -f "$TEMP_DEB"
             /usr/share/elasticsearch/bin/elasticsearch-plugin install --batch https://d3g5vo6xdbdb9a.cloudfront.net/downloads/elasticsearch-plugins/opendistro-security/opendistro_security-0.8.0.0.zip
             # since IVIS installs a proxy which guarantees secure connection, this **should** be ok?
-            /usr/share/elasticsearch/plugins/opendistro_security/tools/install_demo_configuration.sh -y
+            bash /usr/share/elasticsearch/plugins/opendistro_security/tools/install_demo_configuration.sh -y
             ;;
     esac
 
@@ -242,7 +242,6 @@ function configureElasticSearchSecurity {
     local VMUsername="$4"
 
     chmod +x /usr/share/elasticsearch/plugins/opendistro_security/tools/hash.sh
-                                                                                        #   skip the WARNING: JAVA_HOME not set, will use /usr/bin/java line
     elasticSearchAdminPasswordHash=$(bash /usr/share/elasticsearch/plugins/opendistro_security/tools/hash.sh -p "$adminPassword" | grep -v WARNING)
     elasticSearchVMPasswordHash=$(bash /usr/share/elasticsearch/plugins/opendistro_security/tools/hash.sh -p "$VMPassword" | grep -v WARNING)
 
@@ -294,7 +293,7 @@ opendistro_security:
           type: intern
 EOT
     
-    "/usr/share/elasticsearch/plugins/opendistro_security/tools/securityadmin.sh" -cd "/usr/share/elasticsearch/plugins/opendistro_security/securityconfig" -icl -key "/etc/elasticsearch/kirk-key.pem" -cert "/etc/elasticsearch/kirk.pem" -cacert "/etc/elasticsearch/root-ca.pem" -nhnv
+    bash "/usr/share/elasticsearch/plugins/opendistro_security/tools/securityadmin.sh" -cd "/usr/share/elasticsearch/plugins/opendistro_security/securityconfig" -icl -key "/etc/elasticsearch/kirk-key.pem" -cert "/etc/elasticsearch/kirk.pem" -cacert "/etc/elasticsearch/root-ca.pem" -nhnv
 }
 
 function installIvis {
