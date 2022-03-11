@@ -98,7 +98,7 @@ EOF
     fi
 
     installPrerequisities
-    installIvis http://localhost:8080 http://localhost:8081 0.0.0.0 false "${apiUsesClientCerts}" 
+    installIvis http://localhost:8080 http://localhost:8081 0.0.0.0 false "${apiUsesClientCerts}" "https://localhost:9200"
     installService
 
     echo
@@ -113,6 +113,7 @@ function performInstallHttps {
     local hostAPI="$4"
     local email="$5"
     local apiUsesClientCerts="$6"
+    local hostElastic="$7"
 
 
     if [ $paramCount -ne 4 ]; then
@@ -152,8 +153,8 @@ EOF
     installPrerequisities
     installHttpd 443 443 "${apiPort}"
     createCertificates "${hostTrusted}" "${hostSandbox}" "${apiHost}" "${email}"
-    installHttpsProxy "${hostTrusted}" 443 "${hostSandbox}" 443 "${apiHost}" "${apiPort}" "/etc/letsencrypt/live/${hostTrusted}/cert.pem" "/etc/letsencrypt/live/${hostTrusted}/privkey.pem" "/etc/letsencrypt/live/${hostTrusted}/chain.pem"
-    installIvis "https://${hostTrusted}" "https://${hostSandbox}" true 0.0.0.0 "${apiUsesClientCerts}" "${email}"
+    installHttpsProxy "${hostTrusted}" 443 "${hostSandbox}" 443 "${apiHost}" "${apiPort}" "/etc/letsencrypt/live/${hostTrusted}/cert.pem" "/etc/letsencrypt/live/${hostTrusted}/privkey.pem" "/etc/letsencrypt/live/${hostTrusted}/chain.pem" "${hostElastic}"
+    installIvis "https://${hostTrusted}" "https://${hostSandbox}" true 0.0.0.0 "${apiUsesClientCerts}" "${email}" "https://${hostElastic}"
     installService
 
     echo
@@ -196,7 +197,7 @@ function installPrerequisities {
             curl --silent --location https://rpm.nodesource.com/setup_14.x | bash -
 
             dnf -y install mariadb-server nodejs redis pwgen gcc-c++ make bzip2 java-1.8.0-openjdk git libXScrnSaver at-spi2-atk gtk3
-            rpm -Uhv --force https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-6.6.1.rpm
+            rpm -Uhv --force https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-6.6.2.rpm
             ;;
 
         centos7-aws|centos7-minimal)
@@ -205,7 +206,7 @@ function installPrerequisities {
             curl --silent --location https://rpm.nodesource.com/setup_10.x | bash -
 
             yum -y install mariadb-server nodejs redis pwgen gcc-c++ make bzip2 java-1.8.0-openjdk git libXScrnSaver at-spi2-atk gtk3
-            rpm -Uhv --force https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-6.6.1.rpm
+            rpm -Uhv --force https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-6.6.2.rpm
             ;;
 
         ubuntu1804)
@@ -213,9 +214,12 @@ function installPrerequisities {
             curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash -
             apt-get install -y mariadb-server nodejs redis pwgen g++ make bzip2 openjdk-8-jre git libatk-bridge2.0 libgtk-3-0
 			TEMP_DEB="$(mktemp)"
-			wget -O "$TEMP_DEB" 'https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-6.6.1.deb'
+			wget -O "$TEMP_DEB" 'https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-6.6.2.deb'
 			dpkg -i "$TEMP_DEB"
 			rm -f "$TEMP_DEB"
+            /usr/share/elasticsearch/bin/elasticsearch-plugin install --batch https://d3g5vo6xdbdb9a.cloudfront.net/downloads/elasticsearch-plugins/opendistro-security/opendistro_security-0.8.0.0.zip
+            # since IVIS installs a proxy which guarantees secure connection, this **should** be ok?
+            /usr/share/elasticsearch/plugins/opendistro_security/tools/install_demo_configuration.sh -y
             ;;
     esac
 
@@ -231,6 +235,68 @@ function installPrerequisities {
     systemctl enable elasticsearch
 }
 
+function configureElasticSearchSecurity {
+    local adminUsername="$1"
+    local adminPassword="$2"
+    local VMPassword="$3"
+    local VMUsername="$4"
+
+    chmod +x /usr/share/elasticsearch/plugins/opendistro_security/tools/hash.sh
+                                                                                        #   skip the WARNING: JAVA_HOME not set, will use /usr/bin/java line
+    elasticSearchAdminPasswordHash=$(bash /usr/share/elasticsearch/plugins/opendistro_security/tools/hash.sh -p "$adminPassword" | grep -v WARNING)
+    elasticSearchVMPasswordHash=$(bash /usr/share/elasticsearch/plugins/opendistro_security/tools/hash.sh -p "$VMPassword" | grep -v WARNING)
+
+
+    cat > /usr/share/elasticsearch/plugins/opendistro_security/securityconfig/internal_users.yaml <<EOT
+# This is the internal user database
+# The hash value is a bcrypt hash and can be generated with plugin/tools/hash.sh
+$adminUsername:
+  readonly: true
+  hash: $elasticSearchAdminPasswordHash
+  roles:
+    - admin
+$VMUsername:
+  readonly: true
+  hash: $elasticSearchVMPasswordHash
+  roles:
+    - admin
+EOT
+
+    cat > /usr/share/elasticsearch/plugins/opendistro_security/securityconfig/internal_users.yml <<EOT
+# This is the internal user database
+# The hash value is a bcrypt hash and can be generated with plugin/tools/hash.sh
+$adminUsername:
+  readonly: true
+  hash: $elasticSearchAdminPasswordHash
+  roles:
+    - admin
+$VMUsername:
+  readonly: true
+  hash: $elasticSearchVMPasswordHash
+  roles:
+    - admin
+EOT
+
+    cat > /usr/share/elasticsearch/plugins/opendistro_security/securityconfig/config.yml <<EOT
+opendistro_security:
+  dynamic:
+    http:
+      anonymous_auth_enabled: false
+    authc:
+      basic_internal_auth_domain: 
+        http_enabled: true
+        transport_enabled: true
+        order: 4
+        http_authenticator:
+          type: basic
+          challenge: true
+        authentication_backend:
+          type: intern
+EOT
+    
+    "/usr/share/elasticsearch/plugins/opendistro_security/tools/securityadmin.sh" -cd "/usr/share/elasticsearch/plugins/opendistro_security/securityconfig" -icl -key "/etc/elasticsearch/kirk-key.pem" -cert "/etc/elasticsearch/kirk.pem" -cacert "/etc/elasticsearch/root-ca.pem" -nhnv
+}
+
 function installIvis {
     local urlBaseTrusted="$1"
     local urlBaseSandbox="$2"
@@ -238,6 +304,7 @@ function installIvis {
     local wwwProxy="$4"
     local apiUsesClientCerts="$5"
     local email="$6"
+    local urlBaseElasticsearch="$7"
 
     local apiPort
     local apiCerts
@@ -275,6 +342,21 @@ certs:
     mysql -u root -e "GRANT ALL PRIVILEGES ON \`$productId\`.* TO '$productId'@'localhost';"
     mysql -u $productId --password="$mysqlPassword" -e "CREATE database \`$productId\`;"
     
+    # setup the elasticsearch security plugin
+    esAdmin="admin"
+    esVM="vm"
+    elasticSearchAdminPassword=$(pwgen 32 -1)
+    elasticSearchVMPassword=$(pwgen 32 -1)
+
+    configureElasticSearchSecurity "${esAdmin}" "${elasticSearchAdminPassword}" "${esVM}" "${elasticSearchVMPassword}"
+
+    esConfig="
+elasticsearch:
+    adminUsername:$esAdmin
+    adminPassword:$elasticSearchAdminPassword
+    VMUsername:$esVM
+    VMPassword:$elasticSearchVMPassword
+"
     # Setup installation configuration
     cat > server/config/production.yaml <<EOT
 $emailCnf
@@ -292,7 +374,9 @@ www:
 
   trustedUrlBase: $urlBaseTrusted
   sandboxUrlBase: $urlBaseSandbox
+  esUrlBase: $urlBaseElasticsearch
 
+$esConfig
 
 mysql:
   user: "$productId"
@@ -395,7 +479,7 @@ function installHttpsProxy {
     local certificateFile="$7"
     local certificateKey="$8"
     local caChainFile="$9"
-
+    local hostElastic="${10}"
 
     > $apacheConf
 
@@ -444,6 +528,23 @@ function installHttpsProxy {
     ProxyPreserveHost On
     ProxyPass "/" "http://127.0.0.1:8081/"
     ProxyPassReverse "/" "http://127.0.0.1:8081/"
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName ${hostElastic}:443
+
+    ErrorLog ${apacheLogsPath}/${hostElastic}_ssl_error.log
+    TransferLog ${apacheLogsPath}/${hostElastic}_ssl_access.log
+    LogLevel warn
+
+    SSLEngine on
+    SSLCertificateFile ${certificateFile}
+    SSLCertificateKeyFile ${certificateKey}
+    SSLCertificateChainFile ${caChainFile}
+
+    ProxyPreserveHost On
+    ProxyPass "/" "https://127.0.0.1:9200/"
+    ProxyPassReverse "/" "https://127.0.0.1:9200/"
 </VirtualHost>
 EOT
 
