@@ -354,10 +354,10 @@ certs:
 
     esConfig="
 elasticsearch:
-    adminUsername:$esAdmin
-    adminPassword:$elasticSearchAdminPassword
-    VMUsername:$esVM
-    VMPassword:$elasticSearchVMPassword
+  adminUsername: $esAdmin
+  adminPassword: $elasticSearchAdminPassword
+  VMUsername: $esVM
+  VMPassword: $elasticSearchVMPassword
 "
     # Setup installation configuration
     cat > server/config/production.yaml <<EOT
