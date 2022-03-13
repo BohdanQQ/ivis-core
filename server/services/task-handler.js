@@ -836,7 +836,10 @@ async function handleRun(workEntry) {
                 accessToken: spec.accessToken || null,
                 es: {
                     host: `${config.elasticsearch.host}`,
-                    port: `${config.elasticsearch.port}`
+                    port: `${config.elasticsearch.port}`,
+                    certs: `${config.www.trustedPortIsHttps}`,
+                    uname: `${config.elasticsearch.adminUsername}`,
+                    pwd:   `${config.elasticsearch.adminPassword}`
                 },
                 server: {
                     trustedUrlBase: config.www.trustedUrlBase,

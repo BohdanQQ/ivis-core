@@ -5,7 +5,7 @@ import requests
 
 from .exceptions import *
 
-from elasticsearch import Elasticsearch
+from elasticsearch6 import Elasticsearch
 
 
 class Ivis:
@@ -13,7 +13,14 @@ class Ivis:
 
     def __init__(self):
         self._data = json.loads(sys.stdin.readline())
-        self._elasticsearch = Elasticsearch([{'host': self._data['es']['host'], 'port': int(self._data['es']['port'])}])
+        self._elasticsearch = Elasticsearch([{
+            'scheme': 'https',
+            'host': self._data['es']['host'], 
+            'port': int(self._data['es']['port']),
+            }], 
+            verify_certs=self._data['es']['certs'] == "true",
+            http_auth=(self._data['es']['uname'], self._data['es']['pwd'])
+        )
         self.state = self._data.get('state')
         self.params = self._data['params']
         self.entities = self._data['entities']
