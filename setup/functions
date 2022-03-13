@@ -99,6 +99,10 @@ EOF
 
     installPrerequisities
     installIvis http://localhost:8080 http://localhost:8081 0.0.0.0 false "${apiUsesClientCerts}" "" "https://localhost:9200"
+    # make elasticsearch available for possible cloud instances
+    cat >> /etc/elasticsearch/elasticsearch.yml <<EOT
+network.host: "0.0.0.0"
+EOT
     installService
 
     echo
