@@ -1,7 +1,7 @@
 import sys
 import os
 import json
-from elasticsearch import Elasticsearch, helpers
+from elasticsearch6 import Elasticsearch, helpers
 
 from datetime import datetime, timezone
 import numpy as np

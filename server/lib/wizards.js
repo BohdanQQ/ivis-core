@@ -158,7 +158,7 @@ function energyPlusFn(data) {
 import json
 from datetime import datetime, timedelta
 from ivis import ivis 
-from elasticsearch import helpers
+from elasticsearch6 import helpers
 
 import requests
 import subprocess
@@ -413,7 +413,7 @@ function movingAvarageFn(data) {
         code: `
 from ivis import ivis
 from collections import deque
-from elasticsearch import helpers
+from elasticsearch6 import helpers
 
 es = ivis.elasticsearch
 state = ivis.state
@@ -480,7 +480,7 @@ results = helpers.scan(es,
 
 i = 0
 for item in results:
-  last = item["_source"][ts['field']]
+  last = item["_source"][source['field']]
   val = item["_source"][source['field']]
   if val is not None:
     queue.append(val)
@@ -491,7 +491,7 @@ for item in results:
   else:
     mean = sum(queue) / float(window)
     doc = {
-      state['moving_average']['fields']['mean']: mean 
+      state['moving_average']['signals']['mean']['field']: mean 
     }
     res = es.index(index=state['moving_average']['index'], doc_type='_doc', body=doc)
 

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import requests
 import subprocess
 import pathlib
-from elasticsearch import Elasticsearch, helpers
+from elasticsearch6 import Elasticsearch, helpers
     
     
 from eppy import modeleditor
