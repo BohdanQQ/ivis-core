@@ -29,6 +29,7 @@ const filesRest = require('./routes/rest/files');
 const embedRest = require('./routes/rest/embed');
 const settingsRest = require('./routes/rest/settings');
 const liveAnimationRest = require('./routes/rest/live-animation');
+const remoteRunPush = require('./routes/rest/remote-run-push');
 
 const jobsSse = require('./routes/sse/jobs');
 
@@ -198,6 +199,7 @@ function createApp(type) {
         app.use('/rest', panelsRest);
         app.use('/rest', settingsRest);
         app.use('/rest', liveAnimationRest);
+        app.use('/rest', remoteRunPush);
 
 
         app.use('/sse', jobsSse);
