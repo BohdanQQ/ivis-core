@@ -1,3 +1,5 @@
+'use strict';
+
 const RequestType = {
     CREATE_SIG: 0,
     STORE_STATE: 1,

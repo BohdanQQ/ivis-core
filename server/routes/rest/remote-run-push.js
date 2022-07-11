@@ -13,7 +13,6 @@ const createSigSet = require('../../models/signal-sets').createTx;
 const createSignal = require('../../models/signals').createTx;
 const { getAdminContext } = require('../../lib/context-helpers');
 const { SignalSource } = require('../../../shared/signals');
-const jobs = require('../../models/jobs');
 const { RunStatus } = require('../../../shared/jobs');
 const log = require("../../lib/log");
 
@@ -127,16 +126,16 @@ router.postAsync('/remote/runRequest', async (req, res) => {
 
     switch (type) {
         case RequestType.STORE_STATE:
-            response = await setStatusByResponse(async () => await storeState(payload));
+            response = await setStatusByResponse(async () => await storeState(payload), res);
             break;
         case RequestType.CREATE_SIG:
-            response = await setStatusByResponse(async () => await createRequest(payload));
+            response = await setStatusByResponse(async () => await createRequest(payload), res);
             break;
     }
     return res.json(response);
 });
 
-async function setStatusByResponse(requestHandler) {
+async function setStatusByResponse(requestHandler, res) {
     const response = await requestHandler();
     if (response.errStatus) {
         res.status(response.errStatus);
@@ -166,12 +165,11 @@ async function storeState(payload) {
 async function createRequest(payload) {
     const jobIdPresent = payload.jobId;
     const setsPresent = payload.signalSets;
-    const specPresent = payload.signalSetSpec;
 
-    if (jobIdPresent && setsPresent && specPresent) {
+    if (jobIdPresent && setsPresent) {
         return await processCreateRequest(payload.jobId, payload.signalSets, payload.signalsSpec);
     } else {
-        const nspecFields = createMisssingList([jobIdPresent, setsPresent, specPresent], ['jobId', `signalSets`, `signalsSpec`]);
+        const nspecFields = createMisssingList([jobIdPresent, setsPresent], ['jobId', `signalSets`]);
         return { error: `${nspecFields} not specified`, errStatus: 400 };
     }
 }
