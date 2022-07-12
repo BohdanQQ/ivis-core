@@ -478,9 +478,9 @@ results = helpers.scan(es,
                        index=sig_set['index']
                        )
 
-i = 0
+i = len(queue)
 for item in results:
-  last = item["_source"][source['field']]
+  last = item["_source"][ts['field']]
   val = item["_source"][source['field']]
   if val is not None:
     queue.append(val)
