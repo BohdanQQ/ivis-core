@@ -105,6 +105,7 @@ async function init() {
     handlerProcess.on('message', (msg) => {
         taskEmitter.emit(msg.type, msg.data)
     });
+    handlerProcess.on('error', (msg) => { log.info(LOG_ID, msg);});
 
 
     taskEmitter.on(TaskEventTypes.ACCESS_TOKEN, async (data) => {
@@ -461,6 +462,14 @@ function scheduleJobDelete(jobId) {
     });
 }
 
+function scheduleRemoteRunFinished(runId, jobId) {
+    handlerProcess.send({
+        type: HandlerMsgType.REMOTE_RUN_END,
+        runId,
+        jobId
+    });
+}
+
 module.exports.init = init;
 module.exports.scheduleBuild = scheduleBuild;
 module.exports.scheduleRun = scheduleRun;
@@ -472,3 +481,4 @@ module.exports.esConstants = {INDEX_JOBS, TYPE_JOBS, STATE_FIELD};
 module.exports.getTaskDir = getTaskDir;
 module.exports.getTaskBuildOutputDir = getTaskBuildOutputDir;
 module.exports.getTaskDevelopmentDir = getTaskDevelopmentDir;
+module.exports.scheduleRemoteRunFinished = scheduleRemoteRunFinished;

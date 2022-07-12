@@ -13,6 +13,9 @@ const {resolveAbs, getFieldsetPrefix} = require('../../shared/param-types-helper
 const {getSignalEntitySpec} = require('../lib/signal-helpers')
 const {getSignalSetEntitySpec} = require('../lib/signal-set-helpers')
 const {createRunManager} = require('./jobs/run-manager');
+const { MachineTypes } = require('../../shared/remote-run');
+const { handleRun: remoteRun, handleStop: remoteStop } = require('./jobs/remote-machine-handler');
+const jobs = require('../models/jobs');
 
 const es = require('../lib/elasticsearch');
 const {TYPE_JOBS, INDEX_JOBS, STATE_FIELD} = require('../lib/task-handler').esConstants
@@ -71,6 +74,9 @@ async function handleMsg(msg) {
     if (msg) {
         try {
             switch (msg.type) {
+                case HandlerMsgType.REMOTE_RUN_END:
+                    await handleRemoteRunEnd(msg);
+                    break;
                 case HandlerMsgType.ACCESS_TOKEN:
                     emitter.emit(`token-${msg.spec.runId}`, msg);
                     break;
@@ -99,6 +105,13 @@ async function handleMsg(msg) {
     }
 }
 
+function handleRemoteRunEnd(msg) {
+    const jobId = msg.jobId;
+    const runId = msg.runId;
+    jobRunning.delete(jobId);
+    inProcessMsgs.delete(runId);
+}
+
 /**
  * Stop running job, if still running.
  * @param msg
@@ -123,11 +136,25 @@ async function stop(msg) {
     } else {
         const handler = inProcessMsgs.get(runId);
         if (handler) {
+            const executionMachine = await jobs.getMachine(contextHelpers.getAdminContext(), jobId);
+            if (!Object.values(MachineTypes).includes(executionMachine.type)) {
+                throw new Error(`Machine type "${executionMachine.type}" not found`)
+            }
             try {
-                // Update of run in DB is not necessary here as it will be done after interrupting the job
-                await handler.stop(runId);
+                if (executionMachine.type === MachineTypes.LOCAL) {   
+                    // Update of run in DB is not necessary here as it will be done after interrupting the job
+                    await handler.stop(runId);
+                }
+                else {
+                    await remoteStop(executionMachine, runId);
+                    // return here since the emission request should come from the remote machine itself when the job actually stops
+                    return;
+                }
             } catch (err) {
                 log.error(LOG_ID, err);
+                if (executionMachine.type !== MachineTypes.LOCAL) {
+                    return;
+                }
             }
         } else {
             // If the job is not running, it is possible that it has been delayed or is waiting for build to finish
@@ -146,6 +173,9 @@ async function stop(msg) {
             }
         }
     }
+
+    // if anything changes from here up to the end of this block, please be sure 
+    // to reflect the changes in the remote handler and catch block above (remoteStop call)
 
     emitToCoreSystem(getStopEventType(runId))
 }
@@ -848,6 +878,22 @@ async function handleRun(workEntry) {
             throw new HandlerNotFoundError('Handler for type not found', spec.id);
         }
 
+        const executionMachine = await jobs.getMachine(contextHelpers.getAdminContext(), jobId);
+        if (!Object.values(MachineTypes).includes(executionMachine.type)) {
+            throw new Error(`Machine type "${executionMachine.type}" not found`)
+        }
+        
+        if (executionMachine.type !== MachineTypes.LOCAL) {
+            spec.accessToken = await requestJobRestrictedAccessToken(jobId, runId);
+            spec.state = await loadJobState(jobId);
+            await remoteRun(executionMachine, runId, jobId, spec);
+            inProcessMsgs.set(runId, handler);
+            return;
+        }
+        
+        // if anything changes from here up to the end of this block, please be sure 
+        // to reflect the changes in the remote handler above (remoteRun call)
+        
         await knex('job_runs').where('id', runId).update({status: RunStatus.RUNNING});
         inProcessMsgs.set(runId, handler);
 
@@ -875,7 +921,6 @@ async function handleRun(workEntry) {
             }
         };
 
-
         // TODO move interaction, as running and stopping, to run manager
         // there is a lot of overhead for running a job so it will serve as intermediate layer for handlers
         const runManager = createRunManager(jobId, runId, {
@@ -895,9 +940,12 @@ async function handleRun(workEntry) {
             runManager.onRunFail
         );
 
+
     } catch (err) {
         log.error(LOG_ID, err);
         await knex('job_runs').where('id', spec.runId).update({status: RunStatus.FAILED});
+        jobRunning.delete(jobId);
+        inProcessMsgs.delete(runId);
     }
 
 }

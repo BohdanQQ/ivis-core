@@ -1,9 +1,9 @@
 'use strict';
-
+const {getSignalEntitySpec, allowedKeysCreate: allowedSignalKeysCreate} = require('../../lib/signal-helpers')
 const router = require('../../lib/router-async').create();
 const { emitter } = require('../../lib/task-events');
 const { RequestType, RemoteRunState } = require('../../../shared/remote-run');
-const { esConstants } = require('../../lib/task-handler');
+const { esConstants, scheduleRemoteRunFinished } = require('../../lib/task-handler');
 const knex = require('../../lib/knex');
 const { getIndexName } = require('../../lib/indexers/elasticsearch-common');
 const { filterObject } = require('../../lib/helpers');
@@ -15,6 +15,7 @@ const { getAdminContext } = require('../../lib/context-helpers');
 const { SignalSource } = require('../../../shared/signals');
 const { RunStatus } = require('../../../shared/jobs');
 const log = require("../../lib/log");
+const es = require('../../lib/elasticsearch');
 
 const LOG_ID = 'remote-push'
 
@@ -70,6 +71,8 @@ router.postAsync('/remote/status', async (req, res) => {
     const outputToAppend = `${output || ''}${errors || ''}`;
     const finishedTimestamp = status.finished_at || null;
     const responseStatus = 200;
+    let stateWritten = null; 
+    let jobId;
     // get admin context because there is none
     // and access to rest/remote should be protected by client certificates
     await knex.transaction(async (t) => {
@@ -79,12 +82,15 @@ router.postAsync('/remote/status', async (req, res) => {
                 responseStatus = 404;
                 return;
             }
+
+            jobId = run.job;
             const stateToWrite = selectStateToWrite(run.status, incomingStatus);
             if (stateToWrite === null) {
                 responseStatus = 500;
                 log.error(LOG_ID, `Status clash detected: db: ${run.status} vs incoming ${incomingStatus}`);
                 return;
             }
+            stateWritten = stateToWrite === incomingStatus ? incomingStatus : null;
 
             const diffObj = {
                 status: stateToWrite,
@@ -108,6 +114,9 @@ router.postAsync('/remote/status', async (req, res) => {
     });
 
     res.status(responseStatus);
+    if (responseStatus === 200 && (stateWritten === RunStatus.SUCCESS || stateWritten === RunStatus.FAILED)) {
+        scheduleRemoteRunFinished(runId, jobId);
+    }
     return res.json({});
 });
 
@@ -157,7 +166,7 @@ async function storeState(payload) {
     if (statePresent && jobIdPresent) {
         return await storeRunState(payload.jobId, payload.request[esConstants.STATE_FIELD]);
     } else {
-        const nspecFields = createMisssingList([jobIdPresent, statePresent], ['jobId', `${STATE_FIELD}`]);
+        const nspecFields = createMisssingList([jobIdPresent, statePresent], ['jobId', `${esConstants.STATE_FIELD}`]);
         return { error: `${nspecFields} not specified`, errStatus: 400 };
     }
 }
@@ -192,6 +201,9 @@ async function storeRunState(id, state) {
         //log.error(LOG_ID, err);
         return { error: err.message, errStatus: 500 };
     }
+    // WARNING: only remote push counts on this line!!!
+    // TODO investigate effects on task handler 
+    return {};
 }
 
 
@@ -246,9 +258,7 @@ async function processCreateRequest(jobId, signalSets, signalsSpec) {
             }
         });
     } catch (error) {
-        // TODO
-        //log.warn(LOG_ID, error);
-        console.log("remote signal creation error: ", error);
+        log.error(LOG_ID, error);
         esInfo.error = error.message;
         esInfo.errStatus = 500;
     }

@@ -28,7 +28,8 @@ const HandlerMsgType = {
     SIGNAL_TRIGGER: 5,
     CREATE: 6,
     INIT: 7,
-    ACCESS_TOKEN: 8
+    ACCESS_TOKEN: 8,
+    REMOTE_RUN_END: 9
 };
 Object.freeze(HandlerMsgType)
 
