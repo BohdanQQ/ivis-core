@@ -12,11 +12,11 @@ const {RunStatus} = require('../../shared/jobs');
 const {TaskSource} = require('../../shared/tasks');
 const jobHandler = require('../lib/task-handler');
 const signalSets = require('./signal-sets');
-const allowedKeys = new Set(['name', 'description', 'task', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace']);
-const allowedKeysUpdate = new Set(['name', 'description', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace']);
+const allowedKeys = new Set(['name', 'description', 'task', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace', 'execution_machine_id']);
+const allowedKeysUpdate = new Set(['name', 'description', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace', 'execution_machine_id']);
 const {getVirtualNamespaceId} = require('../../shared/namespaces');
 
-const columns = ['jobs.id', 'jobs.name', 'jobs.description', 'jobs.task', 'jobs.created', 'jobs.state', 'jobs.trigger', 'jobs.min_gap', 'jobs.delay', 'namespaces.name', 'tasks.name', 'tasks.source'];
+const columns = ['jobs.id', 'jobs.name', 'jobs.description', 'jobs.task', 'jobs.created', 'jobs.state', 'jobs.trigger', 'jobs.min_gap', 'jobs.delay', 'namespaces.name', 'job_execution_machines.name', 'tasks.name', 'tasks.source'];
 
 function hash(entity) {
     return hasher.hash(filterObject(entity, allowedKeys));
@@ -32,6 +32,7 @@ function getQueryFun(taskSource) {
         .innerJoin('tasks', 'tasks.id', 'jobs.task')
         .whereIn('tasks.source', taskSource)
         .innerJoin('namespaces', 'namespaces.id', 'jobs.namespace')
+        .innerJoin('job_execution_machines', 'job_execution_machines.id', 'jobs.execution_machine_id')
 }
 
 /**
@@ -382,6 +383,19 @@ async function stop(context, runId) {
     });
 }
 
+async function getMachine(context, jobId) {
+    let machine = null;
+    await knex.transaction(async tx => {
+        await shares.enforceEntityPermissionTx(tx, context, 'job', jobId, 'view');
+        const job = await tx('jobs').where('id', jobId).first();
+        if (!job) {
+            return null;
+        }
+
+        machine = await tx('job_execution_machines').where('id', job.execution_machine_id).first();
+    });
+    return machine;
+}
 
 module.exports.hash = hash;
 module.exports.getById = getById;
@@ -400,5 +414,6 @@ module.exports.removeRun = removeRun;
 module.exports.removeAllRuns = removeAllRuns;
 module.exports.run = run;
 module.exports.stop = stop;
+module.exports.getMachine = getMachine;
 
 

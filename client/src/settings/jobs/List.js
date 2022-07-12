@@ -125,17 +125,18 @@ export default class List extends Component {
         const columns = [
             {data: 1, title: t('Name')},
             {data: 2, title: t('Description')},
-            {data: 10, title: t('Task')},
+            {data: 11, title: t('Task')},
             {data: 4, title: t('Created'), render: data => moment(data).fromNow()},
             {data: 5, title: t('State'), render: data => this.jobStates[data]},
             {data: 6, title: t('Trigger')},
             {data: 9, title: t('Namespace')},
+            {data: 10, title: t('Executor')},
             {
                 actions: data => {
 
                     const actions = [];
-                    const isReadOnly = data[11] !== TaskSource.USER;
-                    const perms = data[12];
+                    const isReadOnly = data[12] !== TaskSource.USER;
+                    const perms = data[13];
                     const runSpecs = this.runSpecs.get(data[0]);
 
                     let runStatus = null;
