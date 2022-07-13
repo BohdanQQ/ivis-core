@@ -98,7 +98,8 @@ export default class CUD extends Component {
                 signal_sets_triggers: [],
                 trigger: '',
                 min_gap: '',
-                delay: ''
+                delay: '',
+                executor_id: 1
             });
         }
 
@@ -255,6 +256,7 @@ export default class CUD extends Component {
             'delay',
             'namespace',
             'signal_sets_triggers',
+            'executor_id'
         ]);
     }
 
@@ -343,6 +345,13 @@ export default class CUD extends Component {
             {data: 1, title: t('Name')},
             {data: 2, title: t('Description')},
             {data: 4, title: t('Created'), render: data => moment(data).fromNow()}
+        ];
+
+        const execColumns = [
+            {data: 1, title: t("Name")},
+            {data: 2, title: t("Description")},
+            {data: 3, title: t("Type")},
+            {data: 4, title: t("Namespace")},
         ];
 
         const configSpec = this.getFormValue('taskParams');
@@ -436,6 +445,9 @@ export default class CUD extends Component {
                             {t('Virtual')}
                         </StaticField>
                     }
+
+                    <TableSelect id="executor_id" label={t('Executor')} withHeader dropdown dataUrl="rest/job-exec-table"
+                                     columns={execColumns} selectionLabelIndex={1} disabled={!isEdit}/>
 
                     <Fieldset id="triggers" label={t('Triggers')}>
                         <InputField id="trigger" label={t('Periodic trigger')}

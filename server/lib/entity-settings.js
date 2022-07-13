@@ -47,6 +47,12 @@ const entityTypes = {
         },
         clientLink: ({id}) => `/settings/jobs/${id}/edit`
     },
+    jobExecutor: {
+        entitiesTable: 'job_executors',
+        sharesTable: 'shares_job_executor',
+        permissionsTable: 'permissions_job_executor',
+        clientLink: ({id}) => `/settings/job-executor/${id}/edit`
+    },
     task: {
         entitiesTable: 'tasks',
         sharesTable: 'shares_task',
