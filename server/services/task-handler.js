@@ -119,6 +119,7 @@ function handleRemoteRunEnd(msg) {
  */
 async function stop(msg) {
     const runId = msg.spec.runId;
+    const jobId = msg.spec.jobId;
     const index = workQueue.findIndex(i => {
         return i.spec.runId === runId;
     });
