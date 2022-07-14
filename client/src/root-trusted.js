@@ -61,6 +61,9 @@ import RecordsCUD from './settings/signal-sets/RecordsCUD';
 import SignalsList from './settings/signal-sets/signals/List';
 import SignalsCUD from './settings/signal-sets/signals/CUD';
 
+import JobExecList from './settings/job-executors/List'
+import JobExecCUD from './settings/job-executors/CUD';
+
 import SettingsSidebar from './settings/Sidebar';
 
 import SamplePanel from './workspaces/SamplePanel';
@@ -703,7 +706,41 @@ const getStructure = t => {
                                 panelRender: props => <NamespacesCUD action="create"/>
                             },
                         }
-                    }
+                    },
+                    'job-executors': {
+                        title: t('Job Executors'),
+                        link: '/settings/job-executors',
+                        panelComponent: JobExecList,
+                        children: {
+                            ':execId([0-9]+)': {
+                                title: resolved => t('Executor "{{name}}"', {name: resolved.executor.name}),
+                                resolve: {
+                                    executor: params => `rest/job-executors/${params.execId}`
+                                },
+                                link: params => `/settings/job-executors/${params.execId}/edit`,
+                                navs: {
+                                    ':action(edit|delete)': {
+                                        title: t('Settings'),
+                                        link: params => `/settings/job-executors/${params.execId}/edit`,
+                                        visible: resolved => resolved.executor.permissions.includes('edit'),
+                                        panelRender: props => <JobExecCUD action={props.match.params.action}
+                                                                       entity={props.resolved.executor}/>
+                                    },
+                                    share: {
+                                        title: t('Share'),
+                                        link: params => `/settings/job-executors/${params.execId}/share`,
+                                        visible: resolved => resolved.executor.permissions.includes('share'),
+                                        panelRender: props => <Share title={t('Share')} entity={props.resolved.executor}
+                                                                     entityTypeId="jobExecutor"/>
+                                    }
+                                }
+                            },
+                            create: {
+                                title: t('Create'),
+                                panelRender: props => <JobExecCUD action="create"/>
+                            }
+                        }
+                    },
                 }
             }
         }

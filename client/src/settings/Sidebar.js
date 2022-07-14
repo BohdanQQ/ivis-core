@@ -40,6 +40,9 @@ export default class Sidebar extends Component {
         if (ivisConfig.globalPermissions.showAdminJobs)
             settings.push(<NavLink key='jobs' to="/settings/jobs" icon="wrench" iconFamily="fas">{t('Jobs')}</NavLink>);
 
+        if (ivisConfig.globalPermissions.showAdminJobExecs)
+            settings.push(<NavLink key='jobExecs' to="/settings/job-executors" icon="cloud" iconFamily="fas">{t('Job Executors')}</NavLink>);
+
         if (ivisConfig.globalPermissions.showAdminTasks)
             settings.push(<NavLink key='tasks' to="/settings/tasks" icon="suitcase" iconFamily="fas">{t('Tasks')}</NavLink>);
 

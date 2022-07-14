@@ -68,18 +68,27 @@ export default class CUD extends Component {
 
     @withAsyncErrorHandler
     async fetchMachineTypeParams(type) {
-        // TODO
         const result = await axios.get(getUrl(`rest/job-executor-params/${type}`));
 
         this.updateFormValue(EPARAMS_KEY, result.data);
     }
 
+    @withAsyncErrorHandler
+    async unsetMachineParamTypes() {
+        this.updateFormValue(EPARAMS_KEY, {});
+        this.state.formState.setIn(['data', 'type', 'value'], CUD.NOTHING_SELECTED_TYPE);
+        this.state.formState.setIn(['data', 'parameters', 'value'], {});
+    }
+
     onExecTypeChange(state, key, oldVal, newVal) {
         if (oldVal !== newVal) {
             const type = state.formState.getIn(['data', 'type', 'value']);
-            
-            if (type) {
+
+            if (type && type !== CUD.NOTHING_SELECTED_TYPE) {
                 this.fetchMachineTypeParams(type);
+            }
+            else {
+                this.unsetMachineParamTypes();
             }
         }
     }
@@ -94,7 +103,7 @@ export default class CUD extends Component {
                 namespace: ivisConfig.user.namespace,
                 hostname: '',
                 ip_address: null,
-                type: null
+                type: CUD.NOTHING_SELECTED_TYPE
             });
         }
     }
@@ -128,8 +137,8 @@ export default class CUD extends Component {
             state.setIn(['ip_address', 'error'], null);
         }
 
-
-        if (!state.getIn(['type', 'value'])) {
+        const type = state.getIn(['type', 'value']);
+        if (!type || type === CUD.NOTHING_SELECTED_TYPE) {
             state.setIn(['type', 'error'], t('Type must be selected'));
         } else {
             state.setIn(['type', 'error'], null);
@@ -162,7 +171,7 @@ export default class CUD extends Component {
         }
 
         // EPARAMS_KEY dependency
-        data.params = {};
+        data.parameters = {};
         if (data.execParams) {
             data.parameters = this.paramTypes.getParams(data.execParams, data);
         }
@@ -182,7 +191,8 @@ export default class CUD extends Component {
     async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
-        if (this.getFormValue('type') && !this.getFormValue(EPARAMS_KEY)) {
+        const typeNow = this.getFormValue('type');
+        if (typeNow && typeNow !== CUD.NOTHING_SELECTED_TYPE && !this.getFormValue(EPARAMS_KEY)) {
             this.setFormStatusMessage('warning', t('Machine type parameters are not selected. Wait for them to get displayed and then fill them in.'));
             return;
         }
@@ -190,11 +200,9 @@ export default class CUD extends Component {
         let sendMethod, url;
         if (this.props.entity) {
             sendMethod = FormSendMethod.PUT;
-            // TODO 
             url = `rest/job-executors/${this.props.entity.id}`
         } else {
             sendMethod = FormSendMethod.POST;
-            // TODO
             url = 'rest/job-executors'
         }
 
@@ -208,21 +216,17 @@ export default class CUD extends Component {
             if (submitResult) {
                 if (this.props.entity) {
                     if (submitAndLeave) {
-                        // TODO
-                        this.navigateToWithFlashMessage('/setttings/job-executors', 'success', t('Job executor updated'));
+                        this.navigateToWithFlashMessage('/settings/job-executors', 'success', t('Job executor updated'));
                     } else {
-                        // TODO
                         await this.getFormValuesFromURL(`rest/job-executors/${this.props.entity.id}`);
                         this.enableForm();
                         this.setFormStatusMessage('success', t('Job executor updated'));
                     }
                 } else {
                     if (submitAndLeave) {
-                        // TODO
-                        this.navigateToWithFlashMessage('/setttings/job-executors', 'success', t('Job executor saved'));
+                        this.navigateToWithFlashMessage('/settings/job-executors', 'success', t('Job executor saved'));
                     } else {
-                        // TODO
-                        this.navigateToWithFlashMessage(`/setttings/job-executors/${submitResult}/edit`, 'success', t('Job executor saved'));
+                        this.navigateToWithFlashMessage(`/settings/job-executors/${submitResult}/edit`, 'success', t('Job executor saved'));
                     }
                 }
             } else {
@@ -234,18 +238,17 @@ export default class CUD extends Component {
         }
     }
 
+    static NOTHING_SELECTED_TYPE = 'NONE';
     static getExecTypeOptions(t) {
         let states = getChoosableExecutorTypes(t);
-        const stateOptions = [];
+        const typeOptions = [{key: CUD.NOTHING_SELECTED_TYPE, label: t('Please select')}];
         for (let key in states) {
-            if (key != JobState.INVALID_PARAMS) {
-                if (states.hasOwnProperty(key)) {
-                    stateOptions.push({key: key, label: states[key]})
-                }
+            if (states.hasOwnProperty(key)) {
+                typeOptions.push({key: key, label: states[key]})
             }
         }
 
-        return stateOptions;
+        return typeOptions;
     }
 
     render() {
@@ -285,11 +288,8 @@ export default class CUD extends Component {
                 <DeleteModalDialog
                     stateOwner={this}
                     visible={this.props.action === 'delete'}
-                    // TODO
-                    deleteUrl={`rest/job-executors /${this.props.entity.id}`}
-                    // TODO
+                    deleteUrl={`rest/job-executors/${this.props.entity.id}`}
                     backUrl={`/settings/job-executors/${this.props.entity.id}/edit`}
-                    // TODO
                     successUrl="/settings/job-executors"
                     deletingMsg={t('Deleting job executor ...')}
                     deletedMsg={t('Job executor deleted')}/>
@@ -300,11 +300,11 @@ export default class CUD extends Component {
                     <TextArea id="description" label={t('Description')} help={t('HTML is allowed')}
                               disabled={false}/>
 
-                    <Dropdown id="type" label={t('Executor Type')} options={executorTypeOptions} disabled={false}/>
                 
-                    <InputField id="hostname" label={t('Name')} disabled={false}/>
-                    <InputField id="ip_address" label={t('Name')} disabled={false}/>
+                    <InputField id="hostname" label={t('Hostname')} disabled={false}/>
+                    <InputField id="ip_address" label={t('IP Address')} disabled={false}/>
 
+                    <Dropdown id="type" label={t('Executor Type')} options={executorTypeOptions}  disabled={false}/>
                     <NamespaceSelect/>
 
                     {configSpec ?
@@ -321,8 +321,7 @@ export default class CUD extends Component {
                             {params}
                         </Fieldset>
                         :
-                        // TODO is this correct?
-                        this.getFormValue("type") &&
+                        this.getFormValue("type") !== CUD.NOTHING_SELECTED_TYPE &&
                         <div className="alert alert-info" role="alert">{t('Loading parameter config...')}</div>
                     }
 
@@ -335,7 +334,6 @@ export default class CUD extends Component {
                             className="btn-danger"
                             icon="trash-alt"
                             label={t('Delete')}
-                            // TODO
                             to={`/settings/job-executors/${this.props.entity.id}/delete`}
                         />}
                     </ButtonRow>

@@ -21,4 +21,15 @@ const MachineTypes = {
 };
 Object.freeze(MachineTypes);
 
-module.exports = { RequestType, RemoteRunState, MachineTypes }
+const MachineTypeParams = {
+    [MachineTypes.LOCAL]: [],
+    [MachineTypes.REMOTE_RUNNER_AGENT]: [{
+        'id': 'port',
+        'label': 'Port',
+        'help': 'the port the Remote Job Runner is available on',
+        'type': 'integer',
+    }] 
+}
+Object.freeze(MachineTypeParams); 
+
+module.exports = { RequestType, RemoteRunState, MachineTypes, MachineTypeParams }

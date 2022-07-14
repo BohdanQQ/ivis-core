@@ -15,7 +15,7 @@ const signalSets = require('./signal-sets');
 const allowedKeys = new Set(['name', 'description', 'task', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace', 'executor_id']);
 const allowedKeysUpdate = new Set(['name', 'description', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace', 'executor_id']);
 const {getVirtualNamespaceId} = require('../../shared/namespaces');
-
+const getExecutorById = require('./job-execs').getById;
 const columns = ['jobs.id', 'jobs.name', 'jobs.description', 'jobs.task', 'jobs.created', 'jobs.state', 'jobs.trigger', 'jobs.min_gap', 'jobs.delay', 'namespaces.name', 'job_executors.name', 'tasks.name', 'tasks.source'];
 
 function hash(entity) {
@@ -384,17 +384,14 @@ async function stop(context, runId) {
 }
 
 async function getMachine(context, jobId) {
-    let machine = null;
-    await knex.transaction(async tx => {
+    return await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, 'job', jobId, 'view');
         const job = await tx('jobs').where('id', jobId).first();
         if (!job) {
-            return null;
+            throw new interoperableErrors.NotFoundError();
         }
-
-        machine = await tx('job_executors').where('id', job.executor_id).first();
+        return getExecutorById(context, job.executor_id);   
     });
-    return machine;
 }
 
 module.exports.hash = hash;

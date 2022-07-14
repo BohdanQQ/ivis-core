@@ -142,15 +142,16 @@ roles:
       - showAdminUsers
       - showAdminNamespaces
       - showAdminAlerts
+      - showAdminJobExecs
       rootNamespaceRole: master
 
   namespace:
     master:
       name: "Master"
       description: "All permissions"
-      permissions: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert"]
+      permissions: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec"]
       children:
-        namespace: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert"]
+        namespace: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec"]
         template: ["view", "edit", "delete", "share", "execute", "viewFiles", "manageFiles"]
         job: ["view", "edit", "delete", "share", "execute", "viewFiles", "manageFiles"]
         task: ["view", "edit", "delete", "share", "execute", "viewFiles", "manageFiles"]
