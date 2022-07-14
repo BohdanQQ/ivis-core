@@ -22,8 +22,7 @@ import {
 } from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 import {withTranslation} from "../../lib/i18n";
-import styles from "../tasks/List.scss";
-
+import { MachineTypes } from '../../../../shared/remote-run';
 
 @withComponentMixins([
     withTranslation,
@@ -68,6 +67,14 @@ export default class List extends Component {
                 actions: data => {
                     const actions = [];
                     const perms = data[5];
+                    const type = data[3];
+
+                    if (type === MachineTypes.REMOTE_RUNNER_AGENT) {
+                        actions.push({
+                            label: <Icon icon="certificate" title={t('Display certificate data')}/>,
+                            link: `/settings/job-executors/${data[0]}/certs`
+                        });
+                    }
 
                     if (perms.includes('edit')) {
                         actions.push({

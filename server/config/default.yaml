@@ -149,7 +149,7 @@ roles:
     master:
       name: "Master"
       description: "All permissions"
-      permissions: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec"]
+      permissions: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec", "viewCerts"]
       children:
         namespace: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec"]
         template: ["view", "edit", "delete", "share", "execute", "viewFiles", "manageFiles"]
@@ -160,7 +160,7 @@ roles:
         signal: ["view", "edit", "delete", "query", "share"]
         signalSet: ["view", "edit", "delete", "insertRecord", "editRecord", "deleteRecord", "query", "share", "reindex", "createSignal", "manageScripts"]
         alert: ["view", "edit", "delete", "share", "trigger"]
-        jobExecutor: ["view", "edit", "delete", "share"]
+        jobExecutor: ["view", "edit", "delete", "share", "viewCerts"]
 
   template:
     master:
@@ -215,4 +215,4 @@ roles:
     master:
       name: "Master"
       description: "All permissions"
-      permissions: ["view", "edit", "delete", "share"]
+      permissions: ["view", "edit", "delete", "share", "viewCerts"]

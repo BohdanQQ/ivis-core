@@ -726,6 +726,12 @@ const getStructure = t => {
                                         panelRender: props => <JobExecCUD action={props.match.params.action}
                                                                        entity={props.resolved.executor}/>
                                     },
+                                    certs : {
+                                        title: t('Certificates'),
+                                        link: params => `/settings/job-executors/${params.execId}/certs`,
+                                        visible: resolved => resolved.executor.permissions.includes('viewCerts'),
+                                        panelRender: props => <div>Hello, world!</div>
+                                    },
                                     share: {
                                         title: t('Share'),
                                         link: params => `/settings/job-executors/${params.execId}/share`,
