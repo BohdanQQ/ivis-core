@@ -10,6 +10,9 @@ const shares = require('./shares');
 const { MachineTypes, MachineTypeParams } = require('../../shared/remote-run');
 const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'hostname', 'ip_address', 'namespace']);
 const allowedKeysUpdate = new Set(['name', 'description', 'type', 'parameters', 'hostname', 'ip_address', 'namespace']);
+const remoteCert = require('../lib/remote-certificates');
+const log = require('../lib/log');
+const LOG_ID = 'job-execs';
 
 const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
@@ -58,6 +61,17 @@ async function create(context, executor) {
 
         const ids = await tx(EXEC_TABLE).insert(filteredEntity);
         const id = ids[0];
+        filteredEntity.id = id;
+
+        // TODO: create only for speficic types?
+        // followup: create if not exists on update
+        try {
+            await remoteCert.createRemoteExecutorCertificate(filteredEntity)
+        }
+        catch {
+            remoteCert.tryRemoveCertificate(filteredEntity.id);
+            throw new interoperableErrors.ServerValidationError("Error when creating certificates");
+        }
 
         await shares.rebuildPermissionsTx(tx, { entityTypeId: EXEC_TYPEID, entityId: id });
 
@@ -137,12 +151,36 @@ async function remove(context, id) {
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
 
         // TODO: decide what to do here - maybe stop pending runs addressed to the remote executor? (remove from work queue) 
-
+        remoteCert.tryRemoveCertificate(id);
         await tx(EXEC_TABLE).where('id', id).del();
+    });
+}
+
+async function getAllCerts(context, id) {
+    return await knex.transaction(async tx => {
+        await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'viewCerts');
+        
+        try {
+            remoteCert.getRemoteExecutorPrivateInfo
+            const {
+                cert,
+                key
+            } = remoteCert.getRemoteExecutorPrivateInfo(id);
+            return {
+                ca: remoteCert.getRemoteCACert(),
+                cert,
+                key
+            }
+        }
+        catch (err) {
+            log.verbose(LOG_ID, 'error when getting certs', err);
+            // rethrow different exception to not leak certificate-key paths / possibly contents
+            throw new interoperableErrors.NotFoundError("Certificates not found");
+        }
     });
 }
 
 
 module.exports = {
-    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove
+    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts
 }

@@ -42,5 +42,9 @@ router.putAsync('/job-executors/:execId', passport.loggedIn, passport.csrfProtec
     return res.json();
 });
 
+router.getAsync('/job-executors/:execId/certs', passport.loggedIn, async (req, res) => {
+    return res.json(await jobExecs.getAllCerts(req.context, castToInteger(req.params.execId)));
+});
+
 
 module.exports = router

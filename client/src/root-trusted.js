@@ -63,6 +63,7 @@ import SignalsCUD from './settings/signal-sets/signals/CUD';
 
 import JobExecList from './settings/job-executors/List'
 import JobExecCUD from './settings/job-executors/CUD';
+import CertDisplay from './settings/job-executors/CertDisplay'
 
 import SettingsSidebar from './settings/Sidebar';
 
@@ -730,7 +731,10 @@ const getStructure = t => {
                                         title: t('Certificates'),
                                         link: params => `/settings/job-executors/${params.execId}/certs`,
                                         visible: resolved => resolved.executor.permissions.includes('viewCerts'),
-                                        panelRender: props => <div>Hello, world!</div>
+                                        resolve: {
+                                            execCerts: params => `rest/job-executors/${params.execId}/certs`
+                                        },
+                                        panelRender: props => <CertDisplay entity={props.resolved.execCerts}/>
                                     },
                                     share: {
                                         title: t('Share'),

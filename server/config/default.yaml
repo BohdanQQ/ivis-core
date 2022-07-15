@@ -91,6 +91,7 @@ redis:
   # password=""
 
 certs:
+  # TODO: combine everything with remote certificates
   www:
     serverCert: certs/server-crt.pem
     serverKey: certs/server-key.pem
@@ -101,6 +102,10 @@ certs:
     serverCert: certs/server-crt.pem
     serverKey: certs/server-key.pem
 
+  remote:
+    cliCert: certs/remote/server.cert
+    cliKey: certs/remote/server.pem
+    CACert: certs/remote/ca/ca.cert
 
 log:
   # silly|verbose|info|http|warn|error|silent
