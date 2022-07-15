@@ -383,14 +383,14 @@ async function stop(context, runId) {
     });
 }
 
-async function getMachine(context, jobId) {
+async function getMachine(context, jobId, withPermissions = false) {
     return await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, 'job', jobId, 'view');
         const job = await tx('jobs').where('id', jobId).first();
         if (!job) {
             throw new interoperableErrors.NotFoundError();
         }
-        return getExecutorById(context, job.executor_id);   
+        return await getExecutorById(context, job.executor_id, withPermissions);   
     });
 }
 

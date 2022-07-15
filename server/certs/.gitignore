@@ -1,3 +1,4 @@
 *.pem
 *.srl
+*.cert
 ca-database.txt

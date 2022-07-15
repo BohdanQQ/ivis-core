@@ -1,0 +1,22 @@
+[ default ]
+ca                      = IVIS-core-CA
+dir                     = .
+
+[ req ]
+default_bits            = 4096
+encrypt_key             = no
+utf8                    = yes
+string_mask             = utf8only
+prompt                  = no
+distinguished_name      = ca_dn
+req_extensions          = ca_reqext
+
+[ ca_dn ]
+organizationName        = "IVIS-core"
+organizationalUnitName  = "IVIS-core CA"
+commonName              = "IVIS-core CA"
+
+[ ca_reqext ]
+keyUsage                = critical,keyCertSign,cRLSign
+basicConstraints        = critical,CA:true
+subjectKeyIdentifier    = hash

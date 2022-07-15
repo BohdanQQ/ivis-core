@@ -44,7 +44,7 @@ async function handleStop(executionMachine, runId) {
 }
 
 function getMachineURLBase(executionMachine) {
-    const port = JSON.parse(executionMachine.parameters).port;
+    const port = executionMachine.parameters.port;
     return `https://${executionMachine.hostname || executionMachine.ip_address}:${port}`;
 }
 async function handleRJRRun(executionMachine, runId, jobId, spec) {
