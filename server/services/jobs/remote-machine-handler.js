@@ -8,17 +8,12 @@ const knex = require('../../lib/knex');
 const { getTaskDevelopmentDir } = require('../../lib/task-handler'); 
 const { PYTHON_JOB_FILE_NAME } = require('../../../shared/tasks');
 const { MachineTypes } = require('../../../shared/remote-run');
-  
-const certPaths = {
-    ca: '/opt/ca.cert.pem',
-    cliCert: '/opt/server.cert.pem',
-    cliKey: '/opt/server.key.insecure',
-};
+const remoteCerts = require('../../lib/remote-certificates');
 
 const httpsAgent = new https.Agent({
-    ca: fs.readFileSync(certPaths.ca),
-    cert: fs.readFileSync(certPaths.cliCert),
-    key: fs.readFileSync(certPaths.cliKey),
+    ca: remoteCerts.getRemoteCACert(),
+    cert: remoteCerts.getIVISRemoteCert(),
+    key: remoteCerts.getIVISRemoteKey(),
   });
 
 const httpsClient = axios.create({ httpsAgent });

@@ -12,6 +12,8 @@ const LOG_ID = 'remote-certs';
 const ROOT = path.join(__dirname, '..');
 const EXEC_ROOT = path.join(ROOT, 'certs', 'remote');
 const CA_CERT_PATH = path.join(ROOT, config.certs.remote.CACert);
+const IVIS_KEY_PATH = path.join(ROOT, config.certs.remote.cliKey);
+const IVIS_CERT_PATH = path.join(ROOT, config.certs.remote.cliCert);
 
 
 function ensurePath(path, message) {
@@ -34,6 +36,24 @@ ensurePath(EXEC_ROOT, "The remote job executor client certificate store forlder 
 function getRemoteCACert() {
     ensureCACert();
     return fs.readFileSync(CA_CERT_PATH).toString();  
+}
+
+/**
+ * @returns {string} IVIS core certificate inteded for both client and server authentication 
+ */
+function getIVISRemoteCert() {
+    ensurePath(IVIS_CERT_PATH, "The IVIS certificate for client/server authentication is missing in its configured location");
+    return fs.readFileSync(IVIS_CERT_PATH).toString();
+}
+
+/**
+ * WARNING !!! So far, this is only intended to be used within the task handler !!! Any other use should be carefully 
+ * thought out and secured !!! 
+ * @returns {string} IVIS core key for the corresponding certificate (returned by this module's getIVISRemoteCert) 
+ */
+ function getIVISRemoteKey() {
+    ensurePath(IVIS_KEY_PATH, "The IVIS key for client/server certificate is missing in its configured location");
+    return fs.readFileSync(IVIS_KEY_PATH).toString();
 }
 
 function getExecutorFilePrefix(executorId) {
@@ -109,5 +129,7 @@ module.exports = {
     createRemoteExecutorCertificate,
     getRemoteExecutorPrivateInfo,
     getRemoteCACert,
-    tryRemoveCertificate
+    tryRemoveCertificate,
+    getIVISRemoteKey,
+    getIVISRemoteCert
 }
