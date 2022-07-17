@@ -16,6 +16,8 @@ const { SignalSource } = require('../../../shared/signals');
 const { RunStatus } = require('../../../shared/jobs');
 const log = require("../../lib/log");
 const es = require('../../lib/elasticsearch');
+const remoteComms = require('../../lib/remote-executor-comms');
+const jobs = require('../../models/jobs');
 
 const LOG_ID = 'remote-push'
 
@@ -115,6 +117,19 @@ router.postAsync('/remote/status', async (req, res) => {
     res.status(responseStatus);
     if (responseStatus === 200 && (stateWritten === RunStatus.SUCCESS || stateWritten === RunStatus.FAILED)) {
         scheduleRemoteRunFinished(runId, jobId);
+        // the following code IS NOT in a catch block!
+        // the reason this is not in a catch block is to allow the remote executor to
+        // detect this error and retry the request which should be ok in terms of db:
+        //  - state priority is equal -> nothing changes
+        //  - output is not being appended -> nothing changes
+        //  - remote run end event can also be repeated
+        const executor = await jobs.getRunExecutor(runId);
+        if (executor) {
+            await remoteComms.getRemoteHandler(executor.type).removeRun(executor, runId);
+        }
+        else {
+            log.error(LOG_ID, `Executor for run ${runId} not found`);
+        }
     }
     return res.json({});
 });
