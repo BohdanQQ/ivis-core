@@ -152,6 +152,8 @@ async function remove(context, id) {
 
         // TODO: decide what to do here - maybe stop pending runs addressed to the remote executor? (remove from work queue) 
         remoteCert.tryRemoveCertificate(id);
+        // TODO: disable job as well?
+        await tx('jobs').where('executor_id', id).update({executor_id: 1});
         await tx(EXEC_TABLE).where('id', id).del();
     });
 }
