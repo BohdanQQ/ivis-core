@@ -1,23 +1,26 @@
 'use strict';
 
-const {getRemoteHandler} = require('../../lib/remote-executor-comms');
+const { getRemoteHandler } = require('../../lib/remote-executor-comms');
+const log = require('../../lib/log');
+const LOG_ID = "remote-handler";
+
+function getHandlerChecked(type) {
+    const handler = getRemoteHandler(type);
+    if (!handler) {
+        const msg = `handler for remote machine of type ${type} not found`;
+        log.error(LOG_ID, msg);
+        throw new Error(msg);
+    }
+    return handler;
+}
 
 async function handleRun(executionMachine, runId, jobId, spec) {
-    const handler = getRemoteHandler(executionMachine.type);
-    if (!handler) {
-        // TODO log
-        throw new Error(`handler for remote machine of type ${executionMachine.type} not found`);
-    }
+    const handler = getHandlerChecked(executionMachine.type);
     await handler.run(executionMachine, runId, jobId, spec);
 }
 
 async function handleStop(executionMachine, runId) {
-    const handler = getRemoteHandler(executionMachine.type);
-    if (!handler) {
-        // TODO log
-        throw new Error(`handler for remote machine of type ${executionMachine.type} not found`);
-    }
-
+    const handler = getHandlerChecked(executionMachine.type);
     await handler.stop(executionMachine, runId);
 }
 
