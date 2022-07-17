@@ -13,6 +13,7 @@ const simpleGit = require('simple-git');
 
 const knex = require('./knex');
 const {RunStatus, HandlerMsgType} = require('../../shared/jobs');
+const { getRunExecutor } = require('../models/jobs');
 const {
     BuildState,
     getTransitionStates,
@@ -22,10 +23,11 @@ const {
 const {storeBuiltinTasks, list} = require('../models/builtin-tasks');
 const users = require('../models/users');
 const contextHelpers = require('../lib/context-helpers');
-
+const remoteComms = require('../lib/remote-executor-comms');
 const {emitter: esEmitter, EventTypes: EsEventTypes} = require('./elasticsearch-events');
 const {emitter: taskEmitter, EventTypes: TaskEventTypes} = require('./task-events');
 const {emitter: filesEmitter, EventTypes: FilesEventTypes} = require('./files-events');
+const { MachineTypes, RemoteRunState } = require('../../shared/remote-run');
 
 const handlerExec = em.get('task-handler.exec', path.join(__dirname, '..', 'services', 'task-handler.js'));
 
@@ -324,6 +326,71 @@ async function initBuiltinTasks() {
     }
 }
 
+
+/**
+ * Synchronizes local run state with remote run state. Removes remote run if needed.
+ * 
+ * @param {object} state remote run state as received from the remote executor
+ * @param {number} runId 
+ * @param {object} handler executor handler 
+ * @param {object} executor 
+ * @returns 
+ */
+async function cleanUpdateRemoteRunFromStatus(state, runId, handler, executor) {
+    if ( state.status === RemoteRunState.SUCCESS || state.status === RemoteRunState.RUN_FAIL ) {
+        // status === success / fail -> overwrite entire run status + request run removal
+        const outputToAppend = `${state.output || ''}${state.error || ''}`;
+        const finishedTimestamp = state.finished_at || null;
+        try {       
+            await knex.transaction(async (t) => {
+                const run = await t('job_runs').where('id', runId).first();
+                const diffObj = {
+                    status: state.status === RemoteRunState.SUCCESS ? RunStatus.SUCCESS : RunStatus.FAILED,
+                    output: run.output || ''
+                };
+ 
+                if (finishedTimestamp !== null) {
+                    diffObj.finished_at = new Date(finishedTimestamp);
+                }
+                if (outputToAppend !== '') {
+                    diffObj.output += '\n' + outputToAppend;
+                }
+                await t('job_runs').update(diffObj).where('id', runId);
+            });
+        } catch (error) { 
+            log.error(LOG_ID, `error when updating run on IVIS-core restart: ${error}`);
+            return;
+        }
+
+        await handler.removeRun(executor, runId);
+    }
+    else if (state.status === RemoteRunState.QUEUED || state.status === RemoteRunState.RUNNING) {
+        // status === running / scheduled -> only update status to received status
+        try {       
+            await knex.transaction(async (t) => {
+                const run = await t('job_runs').where('id', runId).first();
+                // in db, the state should be queued or running
+                // if running -> dont update
+                // if queued -> update to running
+                // else dont update ... run has finished in the meantime
+                if (run.status === RunStatus.RUNNING) {
+                    return;
+                }
+                else if (run.status === RunStatus.QUEUED) {
+                    await t('job_runs').where('id', runId).update({status: state.status});
+                    return;
+                }
+            });
+        } catch (error) {
+            log.error(LOG_ID, `error when updating run on IVIS-core restart: ${error}`);
+            return;
+        }
+    }
+    else {
+        throw new Error(`Invalid run status ${state.staus}`);
+    }
+}
+
 /**
  * Prevents run DB table from being in inconsistent state on a new start.
  * @returns {Promise<void>}
@@ -332,13 +399,35 @@ async function cleanRuns() {
     const runs = await knex('job_runs').whereIn('status', [RunStatus.INITIALIZATION, RunStatus.SCHEDULED, RunStatus.RUNNING]);
     if (runs) {
         for (const run of runs) {
-            try {
-                await knex('job_runs').where('id', run.id).update({
-                    status: RunStatus.FAILED,
-                    output: 'Cancelled upon start'
-                })
-            } catch (err) {
-                log.error(LOG_ID, `Failed to clear run with id ${run.id}: ${err.stack}`);
+            const remoteExec = await getRunExecutor(run.id);
+            // uninitialized jobs can't have been run 
+            if (run.status !== RunStatus.INITIALIZATION && remoteExec.type !== MachineTypes.LOCAL) {
+                const handler = remoteComms.getRemoteHandler(remoteExec.type);
+                // get remote run status 
+                const status = await handler.getStatus(remoteExec, run.id)
+                    .catch(err => {
+                        if (err && err.response && err.response.status === 404) {
+                            // remote run not found -> error
+                            log.error(LOG_ID, `Invalid response from server - run not found - ${err}`);
+                        } else {
+                            log.error(LOG_ID, `response code - ${err}`);
+                        }
+                        return null;
+                    });
+                
+                if (status !== null) {
+                    await cleanUpdateRemoteRunFromStatus(status, run.id, handler, remoteExec);
+                }
+            }
+            else {
+                try {
+                    await knex('job_runs').where('id', run.id).update({
+                        status: RunStatus.FAILED,
+                        output: 'Cancelled upon start'
+                    })
+                } catch (err) {
+                    log.error(LOG_ID, `Failed to clear run with id ${run.id}: ${err.stack}`);
+                }
             }
         }
     }

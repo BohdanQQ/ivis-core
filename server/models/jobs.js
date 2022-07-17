@@ -394,6 +394,15 @@ async function getMachine(context, jobId, withPermissions = false) {
     });
 }
 
+async function getRunExecutor(runId) {
+    const job = (await knex('jobs')
+    .innerJoin('job_runs', 'jobs.id', 'job_runs.job')
+    .where('job_runs.id', runId)
+    .first()
+    );
+    return await getExecutorById(contextHelpers.getAdminContext(), job.executor_id, false);
+}  
+
 module.exports.hash = hash;
 module.exports.getById = getById;
 module.exports.getByIdWithTaskParams = getByIdWithTaskParams;
@@ -412,5 +421,5 @@ module.exports.removeAllRuns = removeAllRuns;
 module.exports.run = run;
 module.exports.stop = stop;
 module.exports.getMachine = getMachine;
-
+module.exports.getRunExecutor = getRunExecutor;
 
