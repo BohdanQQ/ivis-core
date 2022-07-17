@@ -21,7 +21,9 @@ const jobs = require('../../models/jobs');
 
 const LOG_ID = 'remote-push'
 
-
+function hasOwnProperties(obj, props) {
+    return props.reduce((prev, prop) => prev && obj.hasOwnProperty(prop), true);
+}
 
 function translateRemoteState(remoteState) {
     const stateMap = {
@@ -61,6 +63,13 @@ function selectStateToWrite(dbState, incomingState) {
 }
 
 router.postAsync('/remote/status', async (req, res) => {
+    // errors and output can be undefined
+    if (!hasOwnProperties(req.body, ['runId', 'status'])) {
+        res.status(400);
+        res.json({});
+        return;
+    }
+
     const { runId, status, output, errors } = req.body;
     const incomingStatus = translateRemoteState(status.status);
     if (incomingStatus === null) {
@@ -135,15 +144,27 @@ router.postAsync('/remote/status', async (req, res) => {
 });
 
 router.postAsync('/remote/emit', async (req, res) => {
-    // TODO payload (req.body) inspection
+    // data can be undefined (success)
+    if (!hasOwnProperties(req.body, ['type'])) {
+        res.status(400);
+        res.json({});
+        return;
+    }
+
     const { type, data } = req.body;
     emitter.emit(type, data);
 
     return res.json({});
 });
-// TODO: state push endpoint
+
 router.postAsync('/remote/runRequest', async (req, res) => {
-    // TODO payload (req.body) inspection
+    
+    if (!hasOwnProperties(req.body, ['type', 'payload'])) {
+        res.status(400);
+        res.json({});
+        return;
+    }
+
     const { type, payload } = req.body;
     let response = null;
 
