@@ -68,14 +68,13 @@ function getExecutorKeyPath(executorId) {
     return path.join(EXEC_ROOT, `${getExecutorFilePrefix(executorId)}.pem`);
 }
 
-// TODO rename?
 /**
  * WARNING!!! this function shall be called only with sufficient authentication 
  * and authorization as it reveals the private keys of remote executor certificates!!!
  * 
  * @returns {{cert: string, key: string}} the contents of the remote executor certificate with corresponding key
  */
-function getRemoteExecutorPrivateInfo(executorId) {
+function getExecutorCertKey(executorId) {
     const keyPath = getExecutorKeyPath(executorId);
     const certPath = getExecutorCertPath(executorId);
     ensurePath(keyPath);
@@ -127,7 +126,7 @@ function tryRemoveCertificate(executorId) {
 
 module.exports = {
     createRemoteExecutorCertificate,
-    getRemoteExecutorPrivateInfo,
+    getExecutorCertKey,
     getRemoteCACert,
     tryRemoveCertificate,
     getIVISRemoteKey,

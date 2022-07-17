@@ -63,8 +63,10 @@ async function create(context, executor) {
         const id = ids[0];
         filteredEntity.id = id;
 
-        // TODO: create only for speficic types?
-        // followup: create if not exists on update
+        // certs are created for every executor (except the local one)
+        // can also be adjusted to create only for those types that need it
+        // and created on executor type update
+
         try {
             await remoteCert.createRemoteExecutorCertificate(filteredEntity)
         }
@@ -151,8 +153,8 @@ async function remove(context, id) {
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
 
         // TODO: decide what to do here - maybe stop pending runs addressed to the remote executor? (remove from work queue) 
+        // disable jobs?
         remoteCert.tryRemoveCertificate(id);
-        // TODO: disable job as well?
         await tx('jobs').where('executor_id', id).update({executor_id: 1});
         await tx(EXEC_TABLE).where('id', id).del();
     });
@@ -163,11 +165,10 @@ async function getAllCerts(context, id) {
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'viewCerts');
         
         try {
-            remoteCert.getRemoteExecutorPrivateInfo
             const {
                 cert,
                 key
-            } = remoteCert.getRemoteExecutorPrivateInfo(id);
+            } = remoteCert.getExecutorCertKey(id);
             return {
                 ca: remoteCert.getRemoteCACert(),
                 cert,
