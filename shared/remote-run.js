@@ -8,7 +8,6 @@ Object.freeze(RequestType);
 
 const RemoteRunState = {
     SUCCESS: 0,
-    BUILD_FAIL: 1,
     RUN_FAIL: 2,
     RUNNING: 3,
     QUEUED: 4,

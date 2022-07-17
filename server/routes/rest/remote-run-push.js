@@ -24,7 +24,6 @@ const LOG_ID = 'remote-push'
 function translateRemoteState(remoteState) {
     const stateMap = {
         [RemoteRunState.SUCCESS]: RunStatus.SUCCESS,
-        [RemoteRunState.BUILD_FAIL]: RunStatus.FAILED,
         [RemoteRunState.RUN_FAIL]: RunStatus.FAILED,
         [RemoteRunState.RUNNING]: RunStatus.RUNNING,
         [RemoteRunState.QUEUED]: RunStatus.SCHEDULED,
@@ -51,7 +50,7 @@ function selectStateToWrite(dbState, incomingState) {
     const incPrio = getStatePriority(incomingState);
     if (incPrio > dbPrio) {
         return incomingState;
-    } else if (dbPrio < incPrio) {
+    } else if (dbPrio > incPrio) {
         return dbState;
     } else if (dbState !== incomingState) {
         return null;
