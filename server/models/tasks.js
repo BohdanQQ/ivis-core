@@ -475,3 +475,4 @@ module.exports.compile = compile;
 module.exports.compileAll = compileAll;
 module.exports.listBuiltinDTAjaxWithoutPerms = listBuiltinDTAjaxWithoutPerms;
 module.exports.listSystemDTAjaxWithoutPerms = listSystemDTAjaxWithoutPerms;
+module.exports.getCodeForTask = getCodeForTask;

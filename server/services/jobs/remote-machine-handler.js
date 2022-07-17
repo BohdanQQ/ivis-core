@@ -2,13 +2,10 @@
 
 const axios = require('axios');
 const https = require('https');
-const fs = require('fs');
-const path = require('path');
 const knex = require('../../lib/knex');
-const { getTaskDevelopmentDir } = require('../../lib/task-handler'); 
-const { PYTHON_JOB_FILE_NAME } = require('../../../shared/tasks');
 const { MachineTypes } = require('../../../shared/remote-run');
 const remoteCerts = require('../../lib/remote-certificates');
+const tasks = require('../../models/tasks');
 
 const httpsAgent = new https.Agent({
     ca: remoteCerts.getRemoteCACert(),
@@ -43,14 +40,15 @@ function getMachineURLBase(executionMachine) {
     return `https://${executionMachine.hostname || executionMachine.ip_address}:${port}`;
 }
 async function handleRJRRun(executionMachine, runId, jobId, spec) {
-    const task = await knex('tasks').where('id', (await knex('jobs').where('id', jobId).first()).task).first();
+    const taskId = (await knex('jobs').where('id', jobId).first()).task;
+    const task = await knex('tasks').where('id', taskId).first();
     const runRequest = {
         params: spec.params || {},
         entities: spec.entities,
         owned: spec.owned,
         type: task.type,
         subtype: JSON.parse(task.settings).subtype,
-        code: fs.readFileSync(path.join(getTaskDevelopmentDir(task.id), PYTHON_JOB_FILE_NAME)).toString(),
+        code: await tasks.getCodeForTask(taskId),
         accessToken: spec.accessToken,
         state: spec.state,
         jobId: jobId,
