@@ -915,8 +915,8 @@ async function handleRun(workEntry) {
                     port: `${config.elasticsearch.port}`
                 },
                 server: {
-                    trustedUrlBase: config.www.trustedUrlBase,
-                    sandboxUrlBase: config.www.sandboxUrlBase
+                    trustedUrlBase: `http://localhost:${config.www.trustedPort}`,
+                    sandboxUrlBase: `http://localhost:${config.www.sandboxPort}`
                 },
                 state: await loadJobState(jobId)
             }
