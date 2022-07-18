@@ -447,7 +447,7 @@ export default class CUD extends Component {
                     }
 
                     <TableSelect id="executor_id" label={t('Executor')} withHeader dropdown dataUrl="rest/job-exec-table"
-                                     columns={execColumns} selectionLabelIndex={1} disabled={!isEdit}/>
+                                     columns={execColumns} selectionLabelIndex={1}/>
 
                     <Fieldset id="triggers" label={t('Triggers')}>
                         <InputField id="trigger" label={t('Periodic trigger')}
