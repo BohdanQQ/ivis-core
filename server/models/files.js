@@ -72,6 +72,11 @@ async function getFileById(context, type, subType, id) {
     enforceTypePermitted(type, subType);
     const file = await knex.transaction(async tx => {
         const file = await tx(getFilesTable(type, subType)).where('id', id).first();
+
+        if (!file) {
+            return file;
+        }
+
         await shares.enforceEntityPermissionTx(tx, context, type, file.entity, getFilesPermission(type, subType, 'view'));
         return file;
     });
