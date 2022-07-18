@@ -39,6 +39,6 @@ CRT_NAME="${OUT_NAME}.cert"
 
 openssl genrsa -out "${KEY_NAME}" 4096
 openssl req -new -key "${KEY_NAME}" -out "${REQ_NAME}" -subj "/CN=IVIS-Executor"
-openssl x509 -req -in "${REQ_NAME}" -CA ./ca/ca.pem -CAkey ./ca/ca.key -out "${CRT_NAME}" -CAcreateserial -days 9999 -sha256 -extfile "${CNF_FILE}" -extensions v3_req
+openssl x509 -req -in "${REQ_NAME}" -CA ./ca/ca.cert -CAkey ./ca/ca.pem -out "${CRT_NAME}" -CAcreateserial -days 9999 -sha256 -extfile "${CNF_FILE}" -extensions v3_req
 
 rm "${REQ_NAME}" "${CNF_FILE}"
