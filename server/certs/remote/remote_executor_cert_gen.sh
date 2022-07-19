@@ -10,7 +10,6 @@ set -eux
 
 EXECUTOR_IP=$1
 OUT_NAME=$2
-EXECUTOR_NAME=$3
 CNF_FILE=$(mktemp gen-client-cert-XXXXXXX --suffix=.cnf)
 
 echo "
@@ -30,6 +29,7 @@ subjectAltName         = @alt_names
 IP.1                   = ${EXECUTOR_IP}" > "${CNF_FILE}"
 
 if [ $# -ge 3 ]; then
+    EXECUTOR_NAME=$3
     echo "DNS.1=${EXECUTOR_NAME}" >> "${CNF_FILE}"
 fi
 
