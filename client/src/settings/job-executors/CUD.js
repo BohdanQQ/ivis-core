@@ -301,8 +301,8 @@ export default class CUD extends Component {
                               disabled={false}/>
 
                 
-                    <InputField id="hostname" label={t('Hostname')} disabled={false}/>
-                    <InputField id="ip_address" label={t('IP Address')} disabled={false}/>
+                    <InputField id="hostname" label={t('Hostname')} disabled={isEdit}/>
+                    <InputField id="ip_address" label={t('IP Address')} disabled={isEdit}/>
 
                     <Dropdown id="type" label={t('Executor Type')} options={executorTypeOptions}  disabled={false}/>
                     <NamespaceSelect/>
