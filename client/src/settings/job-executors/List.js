@@ -90,7 +90,7 @@ export default class List extends Component {
                         });
                     }
 
-                    tableAddDeleteButton(actions, this, perms, `rest/job-executors/${data[0]}`, data[1], t('Deleting job ...'), t('Job deleted'));
+                    tableAddDeleteButton(actions, this, perms, `rest/job-executors/${data[0]}`, data[1], t('Deleting job executor ...'), t('Job executor deleted'));
 
 
                     return {actions};
