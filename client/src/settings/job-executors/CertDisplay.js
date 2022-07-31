@@ -45,25 +45,25 @@ export default class CertDisplay extends Component {
 
         return (
             <Panel title={t('Job Executor Certificates')}>
-                <h3>CA Certificate</h3>
-                <p>The certificate used to sign the client certificate of this IVIS core instance. Remote Executor must recognise this certificate authority.</p>
+                <h3>{t('CA Certificate')}</h3>
+                <p>{t('The certificate used to sign the client certificate of this IVIS core instance. Remote Executor must recognise this certificate authority.')}</p>
                 <textarea value={ca}
                       disabled={true} style={textStyle} ></textarea>
                 <br/>
                 <br/>
-                <h3>Executor Certificate</h3>
-                <p>The certificate used to by remote executor to authenticate both like a client and a server.</p>
+                <h3>{t('Executor Certificate')}</h3>
+                <p>{t('The certificate used to by remote executor to authenticate both like a client and a server.')}</p>
                 <textarea value={cert}
                       disabled={true} style={textStyle} ></textarea>
                 <br/>
                 <br/>
-                <h3>Executor Private Key</h3>
-                <p>The private key corresponding to the Executor Certificate.</p>
+                <h3>{t('Executor Private Key')}</h3>
+                <p>{t('The private key corresponding to the Executor Certificate.')}</p>
                 {
                     this.state.keyRevealed ? <textarea value={key} disabled={true} style={textStyle}></textarea> : <div></div>
                 }
                 <br/>
-                <button onClick={() => this.toggleKeyVisibility()} >{this.state.keyRevealed ? t("Hide Key") : t("Reveal key")}</button>
+                <button onClick={() => this.toggleKeyVisibility()} >{this.state.keyRevealed ? t('Hide Key') : t('Reveal key')}</button>
             </Panel>
         );
     }
