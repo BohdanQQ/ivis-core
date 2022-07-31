@@ -383,7 +383,7 @@ async function stop(context, runId) {
     });
 }
 
-async function getMachine(context, jobId, withPermissions = false) {
+async function getJobExecutor(context, jobId, withPermissions = false) {
     return await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, 'job', jobId, 'view');
         const job = await tx('jobs').where('id', jobId).first();
@@ -420,6 +420,6 @@ module.exports.removeRun = removeRun;
 module.exports.removeAllRuns = removeAllRuns;
 module.exports.run = run;
 module.exports.stop = stop;
-module.exports.getMachine = getMachine;
+module.exports.getJobExecutor = getJobExecutor;
 module.exports.getRunExecutor = getRunExecutor;
 

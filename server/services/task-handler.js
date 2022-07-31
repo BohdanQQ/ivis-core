@@ -137,7 +137,7 @@ async function stop(msg) {
     } else {
         const handler = inProcessMsgs.get(runId);
         if (handler) {
-            const executionMachine = await jobs.getMachine(contextHelpers.getAdminContext(), jobId);
+            const executionMachine = await jobs.getJobExecutor(contextHelpers.getAdminContext(), jobId);
             if (!Object.values(MachineTypes).includes(executionMachine.type)) {
                 throw new Error(`Machine type "${executionMachine.type}" not found`)
             }
@@ -879,7 +879,7 @@ async function handleRun(workEntry) {
             throw new HandlerNotFoundError('Handler for type not found', spec.id);
         }
 
-        const executionMachine = await jobs.getMachine(contextHelpers.getAdminContext(), jobId);
+        const executionMachine = await jobs.getJobExecutor(contextHelpers.getAdminContext(), jobId);
         if (!Object.values(MachineTypes).includes(executionMachine.type)) {
             throw new Error(`Machine type "${executionMachine.type}" not found`)
         }
