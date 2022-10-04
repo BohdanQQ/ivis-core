@@ -84,7 +84,10 @@ function getExecutorCertKey(executorId) {
         cert: fs.readFileSync(certPath).toString()
     };
 }
-/** Creates a certificate-key pair signed by the local CA for an executor */
+/** Creates a certificate-key pair signed by the local CA for an executor 
+ * 
+ * @returns {Promise<string>} hexadexcimal serial number of the certificate
+*/
 async function createRemoteExecutorCertificate(executor) {
     if (fs.existsSync(getExecutorCertPath(executor.id)) || fs.existsSync(getExecutorKeyPath(executor.id))) {
         throw new Error(`Executor ${executor.name} credentials already exist`);
@@ -94,6 +97,17 @@ async function createRemoteExecutorCertificate(executor) {
         const command = `cd ${EXEC_ROOT} && ./remote_executor_cert_gen.sh ${executor.ip_address} ${getExecutorFilePrefix(executor.id)}${dnsName === null ? '' : (' ' + dnsName)}`;
         log.verbose(LOG_ID, `Creating executor certificate with ${command}`);
         await exec(command);
+
+        const serialExtractCommand = `openssl x509 -in ${getExecutorCertPath(executor.id)} -noout -serial`;
+        const { stdout, stderr } = await exec(serialExtractCommand);
+        const OUTPUT_PREFIX = "serial=";
+        const serial = stdout.substring(OUTPUT_PREFIX.length);
+        if (stderr && stderr.length !== 0 || serial.length === 0) {
+            tryRemoveCertificate(executor.id);
+            throw new Error(stderr);
+        }
+        log.verbose(LOG_ID, `Created certificate with serial number ${serial}`);
+        return serial;
     }catch (err) {
         log.error(LOG_ID, err);
        throw err;

@@ -68,7 +68,13 @@ async function create(context, executor) {
         // and created on executor type update
 
         try {
-            await remoteCert.createRemoteExecutorCertificate(filteredEntity)
+            const certHexSerial = await remoteCert.createRemoteExecutorCertificate(filteredEntity);
+            if (certHexSerial === null) {
+                throw new Error();
+            }
+
+            const certDecSerialString = BigInt(`0x${certHexSerial}`).toString();
+            await tx(EXEC_TABLE).update({ 'cert_serial': certDecSerialString }).where('id', id);
         }
         catch {
             remoteCert.tryRemoveCertificate(filteredEntity.id);

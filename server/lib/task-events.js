@@ -30,11 +30,19 @@ function getSuccessEventType(runId) {
     return `run/${runId}/${EventTypes.SUCCESS}`;
 }
 
+/** extracts the string representation of run id from an event type (OUTPUT, STOP, FAIL, SUCCESS only) */
+function getRunIdFromEventType(type) {
+    const etRe = RegExp('run\/(?<runId>[0-9]+)\/', 'g');
+    let match = etRe.exec(type);
+    return match === null ? null : match.groups.runId;
+}
+
 module.exports = {
     EventTypes,
     getOutputEventType,
     getStopEventType,
     getFailEventType,
     getSuccessEventType,
-    emitter
+    emitter,
+    getRunIdFromEventType
 }

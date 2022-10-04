@@ -18,6 +18,8 @@ const log = require("../../lib/log");
 const es = require('../../lib/elasticsearch');
 const remoteComms = require('../../lib/remote-executor-comms');
 const jobs = require('../../models/jobs');
+const { EventTypes, getRunIdFromEventType } = require("../../lib/task-events");
+const contextHelpers = require('../../lib/context-helpers');
 
 const LOG_ID = 'remote-push'
 
@@ -62,7 +64,66 @@ function selectStateToWrite(dbState, incomingState) {
     return dbState;
 }
 
+const certCheckErrNo = {
+    HEADER_NOT_FOUND: "HEADER_NOT_FOUND",
+    INVALID_FORMAT: "INVALID_FORMAT",
+};
+
+/**
+ * @param {object} request 
+ * @returns {BigInt | string } serial number of the certificate or an error
+ */
+function extractCertSerial(request) {
+    const serialNumRegex = new RegExp('{ serialNumber (?<serialNumber>[0-9]+),', 'g');
+    const match = serialNumRegex.exec(request.headers['x-ivis-cert-serial']);
+    
+    if (match === null) {
+        return certCheckErrNo.HEADER_NOT_FOUND;
+    }
+
+    const { serialNumber } = match.groups;
+    let certSerial = null;
+    try {
+        certSerial = BigInt(serialNumber);
+    }
+    catch (e) {
+        log.error(LOG_ID, e.toString());
+        return certCheckErrNo.INVALID_FORMAT;
+    }
+
+    if (certSerial === null) {
+        return certCheckErrNo.INVALID_FORMAT;
+    }
+
+    return certSerial;
+}
+
+// helper function to tie presence checking and the HTTP response 
+function certSerialPresenceCheck(req, res) {
+    let extractedSerial = extractCertSerial(req);
+    if (extractedSerial === certCheckErrNo.HEADER_NOT_FOUND) {
+        res.status(400);
+        res.json({});
+        log.verbose("Invalid request with no certificate serial header");
+        return false;
+    }
+    if (extractedSerial === certCheckErrNo.INVALID_FORMAT) {
+        res.status(400);
+        res.json({});
+        log.verbose("Invalid certificate serial header value format");
+        return false;
+    }
+
+    return extractedSerial;
+}
+
 router.postAsync('/remote/status', async (req, res) => {
+    // request checking ...
+    let certSerial = certSerialPresenceCheck(req, res);
+    if (!certSerial) {
+        return;
+    }
+
     // errors and output can be undefined
     if (!hasOwnProperties(req.body, ['runId', 'status'])) {
         res.status(400);
@@ -78,6 +139,16 @@ router.postAsync('/remote/status', async (req, res) => {
         res.json({});
         return;
     }
+
+    const executor = await jobs.getRunExecutor(runId);
+    if (executor.cert_serial !== certSerial.toString()) {
+        res.status(403);
+        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to manipulate status of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
+        res.json({});
+        return;
+    }
+
+    // request execution
     const outputToAppend = `${output || ''}${errors || ''}`;
     const finishedTimestamp = status.finished_at || null;
     const responseStatus = 200;
@@ -132,7 +203,6 @@ router.postAsync('/remote/status', async (req, res) => {
         //  - state priority is equal -> nothing changes
         //  - output is not being appended -> nothing changes
         //  - remote run end event can also be repeated
-        const executor = await jobs.getRunExecutor(runId);
         if (executor) {
             await remoteComms.getRemoteHandler(executor.type).removeRun(executor, runId);
         }
@@ -143,7 +213,32 @@ router.postAsync('/remote/status', async (req, res) => {
     return res.json({});
 });
 
+async function emitExecutorCheck(type, data, certSerial, res) {
+    let executor = null;
+    if (type === EventTypes.ACCESS_TOKEN_REFRESH) {
+        const { jobId } = data;
+        executor = await jobs.getMachine(contextHelpers.getAdminContext(), jobId);
+    }
+    else {
+        const runId = getRunIdFromEventType(type);
+        executor = await jobs.getRunExecutor(runId);
+    }
+
+    if (executor.cert_serial !== certSerial.toString()) {
+        res.status(403);
+        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to emit an event on behalf of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
+        res.json({});
+        return false;
+    }
+
+    return true;
+}
+
 router.postAsync('/remote/emit', async (req, res) => {
+    let certSerial = certSerialPresenceCheck(req, res);
+    if (!certSerial) {
+        return;
+    }
     // data can be undefined (success)
     if (!hasOwnProperties(req.body, ['type'])) {
         res.status(400);
@@ -152,12 +247,20 @@ router.postAsync('/remote/emit', async (req, res) => {
     }
 
     const { type, data } = req.body;
+    if (!await emitExecutorCheck(type, data, certSerial, res)) {
+        return;
+    }
+
     emitter.emit(type, data);
 
     return res.json({});
 });
 
 router.postAsync('/remote/runRequest', async (req, res) => {
+    let certSerial = certSerialPresenceCheck(req, res);
+    if (!certSerial) {
+        return;
+    }
     
     if (!hasOwnProperties(req.body, ['type', 'payload'])) {
         res.status(400);
@@ -166,6 +269,17 @@ router.postAsync('/remote/runRequest', async (req, res) => {
     }
 
     const { type, payload } = req.body;
+
+    // jobId must always be present, see storeState and createRequest 
+    const jobId = payload.jobId;
+    const executor = await jobs.getMachine(contextHelpers.getAdminContext(), jobId);
+    if (executor.cert_serial !== certSerial.toString()) {
+        res.status(403);
+        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to create a request on behalf of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
+        res.json({});
+        return;
+    }
+
     let response = null;
 
     switch (type) {
