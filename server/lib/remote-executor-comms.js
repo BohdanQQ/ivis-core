@@ -5,7 +5,7 @@ const https = require('https');
 const knex = require('./knex');
 const { MachineTypes } = require('../../shared/remote-run');
 const remoteCerts = require('./remote-certificates');
-const tasks = require('../models/tasks');
+const archiver = require('../lib/task-archiver');
 
 const httpsAgent = new https.Agent({
     ca: remoteCerts.getRemoteCACert(),
@@ -39,7 +39,7 @@ async function handleRJRRun(executionMachine, runId, jobId, spec) {
         owned: spec.owned,
         type: task.type,
         subtype: JSON.parse(task.settings).subtype,
-        code: await tasks.getCodeForTask(taskId),
+        codeArchive: (await archiver.getTaskArchive(taskId)).toJSON(),
         accessToken: spec.accessToken,
         state: spec.state,
         jobId: jobId,

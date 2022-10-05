@@ -1,7 +1,7 @@
 const { exec } = require('child_process');
 const fs = require('fs-extra-promise');
-const taskHandler = require('../../lib/task-handler');
-
+const taskHandler = require('./task-handler');
+// TODO GENERAL CHECK
 /**
  * @param {number} taskId 
  * @returns {string} The path to the archive associated with this task
@@ -16,17 +16,18 @@ function getTaskArchivePath(taskId) {
  * @returns {Promise<void>} promise of the archiving process, rejects on error
  */
 async function archiveTaskCode(taskId) {
-    // TODO specify output file!
-    const archiveCommand = `tar --exclude=".git" ${taskHandler.getTaskBuildOutputDir(taskId)}`;
+    const archiveCommand = `tar --exclude=".git" --create --file=${getTaskArchivePath(taskId)} --directory=${taskHandler.getTaskBuildOutputDir(taskId)} .`;
+    console.log(`Archive Command: ${archiveCommand}`);
     return new Promise((resolve, reject) => {
         exec(archiveCommand)
             .on('error', (err) => reject(err))
             .on('exit', (code, signal) => {
-                if (code !== null && code !== 0) {
+                if (code === 0) {
+                    console.log(`Archive Created`);
                     resolve();
                     return;
                 }
-                reject(`Archive process exited with code ${code} and signal ${signal}}`);
+                reject(new Error(`Archive process exited with code ${code} and signal ${signal}}`));
             });
     });
 }
@@ -38,14 +39,14 @@ async function archiveExists(taskId) {
 
 /**
  * @param {number} taskId 
- * @returns {Bluebird<Buffer>} the archive file
+ * @returns {Promise<Buffer>>} the archive file
  */
 async function getTaskArchive(taskId) {
     if (!await archiveExists(taskId)) {
         return Promise.reject("Task archive not found!");
     }
 
-    return await fs.readFileAsync(getTaskArchivePath(taskId));
+    return fs.readFileAsync(getTaskArchivePath(taskId));
 }
 
 
