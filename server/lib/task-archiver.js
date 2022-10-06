@@ -1,7 +1,9 @@
 const { exec } = require('child_process');
 const fs = require('fs-extra-promise');
 const taskHandler = require('./task-handler');
-// TODO GENERAL CHECK
+const log = require('./log');
+const LOG_ID = 'Task-archiver';
+
 /**
  * @param {number} taskId 
  * @returns {string} The path to the archive associated with this task
@@ -17,13 +19,12 @@ function getTaskArchivePath(taskId) {
  */
 async function archiveTaskCode(taskId) {
     const archiveCommand = `tar --exclude=".git" --create --file=${getTaskArchivePath(taskId)} --directory=${taskHandler.getTaskBuildOutputDir(taskId)} .`;
-    console.log(`Archive Command: ${archiveCommand}`);
+    log.silly(LOG_ID, `Archive Command: ${archiveCommand}`);
     return new Promise((resolve, reject) => {
         exec(archiveCommand)
             .on('error', (err) => reject(err))
             .on('exit', (code, signal) => {
                 if (code === 0) {
-                    console.log(`Archive Created`);
                     resolve();
                     return;
                 }
@@ -32,14 +33,16 @@ async function archiveTaskCode(taskId) {
     });
 }
 
-
+ /**
+ * @returns {Promise<boolean>}
+ */
 async function archiveExists(taskId) {
     return await fs.existsAsync(getTaskArchivePath(taskId));
 }
 
 /**
  * @param {number} taskId 
- * @returns {Promise<Buffer>>} the archive file
+ * @returns {Promise<Buffer>} the archive file contents buffer
  */
 async function getTaskArchive(taskId) {
     if (!await archiveExists(taskId)) {
