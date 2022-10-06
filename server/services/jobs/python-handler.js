@@ -2,7 +2,7 @@
 const path = require('path');
 const fs = require('fs-extra-promise');
 const spawn = require('child_process').spawn;
-const {PythonSubtypes, defaultSubtypeKey, PYTHON_JOB_FILE_NAME: JOB_FILE_NAME} = require('../../../shared/tasks');
+const { PythonSubtypes, defaultSubtypeKey, PYTHON_JOB_FILE_NAME: JOB_FILE_NAME } = require('../../../shared/tasks');
 const readline = require('readline');
 const ivisConfig = require('../../lib/config');
 const em = require('../../lib/extension-manager');
@@ -19,7 +19,7 @@ const runningProc = new Map();
 // const defaultPythonLibs = ivisConfig.tasks.python.defaultPythonLibs;
 const defaultPythonLibs = ['elasticsearch6', 'requests'];
 const taskSubtypeSpecs = {
-    [defaultSubtypeKey]:{
+    [defaultSubtypeKey]: {
         libs: [...defaultPythonLibs]
     },
     [PythonSubtypes.ENERGY_PLUS]: {
@@ -46,7 +46,7 @@ em.invoke('services.task-handler.python-handler.installSubtypeSpecs', taskSubtyp
  * @param onFail callback on failed run
  * @returns {Promise<void>}
  */
-async function run({jobId, runId, taskDir, inputData}, onEvent, onSuccess, onFail) {
+async function run({ jobId, runId, taskDir, inputData }, onEvent, onSuccess, onFail) {
     try {
         let errOutput = '';
 
@@ -147,6 +147,23 @@ function getDevDir(destDir) {
     return path.join(destDir, '..', 'dist');
 }
 
+async function initGitRepoIfRootIsRepo(path) {
+    const git = simpleGit({
+        baseDir: path,
+        binary: 'git',
+        maxConcurrentProcesses: 6,
+    });
+    const isRepo = await git.checkIsRepo("root");
+    if (!isRepo) {
+        await git.init();
+        // TODO take this somehow from instance config, so it can be instance specific
+        await git.addConfig("user.email", "admin@example.com");
+        await git.addConfig("user.name", "ivis-core");
+    }
+
+    return git;
+}
+
 /**
  * Build task
  * @param config
@@ -155,25 +172,15 @@ function getDevDir(destDir) {
  * @returns {Promise<void>}
  */
 async function build(config, onSuccess, onFail) {
-    const {id, code, destDir} = config;
+    const { id, code, destDir } = config;
     let devDir = getDevDir(destDir);
     try {
         await fs.writeFileAsync(path.join(devDir, JOB_FILE_NAME), code);
         if (devDir != destDir) {
-            await fs.copyAsync(devDir, destDir, {overwrite: true});
+            await fs.copyAsync(devDir, destDir, { overwrite: true });
         }
-        const git = simpleGit({
-            baseDir: devDir,
-            binary: 'git',
-            maxConcurrentProcesses: 6,
-        });
-        const isRepo = await git.checkIsRepo("root");
-        if (!isRepo) {
-            await git.init();
-            // TODO take this somehow from instance config, so it can be instance specific
-            await git.addConfig("user.email", "admin@example.com");
-            await git.addConfig("user.name", "ivis-core");
-        }
+
+        await initGitRepoIfRootIsRepo(devDir);
         await archiver.archiveTaskCode(id);
         await onSuccess(null);
     } catch (error) {
@@ -214,7 +221,7 @@ function getInitScript(subtype, envBuildDir) {
  * @returns {Promise<void>}
  */
 async function init(config, onSuccess, onFail) {
-    const {id, subtype, code, destDir} = config;
+    const { id, subtype, code, destDir } = config;
     try {
         const envBuildDir = path.join(destDir, '..', 'envbuild');
         await fs.emptyDirAsync(envBuildDir);
@@ -222,19 +229,8 @@ async function init(config, onSuccess, onFail) {
         const devDir = getDevDir(destDir);
         await fs.ensureDirAsync(devDir)
 
-        const git = simpleGit({
-            baseDir: devDir,
-            binary: 'git',
-            maxConcurrentProcesses: 6,
-        });
+        const git = await initGitRepoIfRootIsRepo(devDir);
 
-        const isRepo = await git.checkIsRepo("root");
-        if (!isRepo) {
-            await git.init();
-            // TODO take this somehow from instance config, so it can be instance specific
-            await git.addConfig("user.email", "admin@example.com");
-            await git.addConfig("user.name", "ivis-core");
-        }
         const codeFilePath = path.join(devDir, JOB_FILE_NAME)
         await fs.writeFileAsync(codeFilePath, code);
         await git.add(devDir)
@@ -272,9 +268,9 @@ async function init(config, onSuccess, onFail) {
                     await fs.ensureDirAsync(destDir)
 
                     if (devDir != destDir) {
-                        await fs.copyAsync(devDir, destDir, {overwrite: true});
+                        await fs.copyAsync(devDir, destDir, { overwrite: true });
                     }
-                    await fs.moveAsync(envBuildDir, envDir, {overwrite: true});
+                    await fs.moveAsync(envBuildDir, envDir, { overwrite: true });
                     await onSuccess(null);
                 } else {
                     await onFail(null, [`Init ended with code ${code} and the following error:\n${output}`]);
