@@ -208,7 +208,7 @@ async function emitExecutorCheck(type, data, certSerial, res) {
     let executor = null;
     if (type === EventTypes.ACCESS_TOKEN_REFRESH) {
         const { jobId } = data;
-        executor = await jobs.getMachine(contextHelpers.getAdminContext(), jobId);
+        executor = await jobs.getJobExecutor(contextHelpers.getAdminContext(), jobId);
     }
     else {
         const runId = getRunIdFromEventType(type);
@@ -263,7 +263,7 @@ router.postAsync('/remote/runRequest', async (req, res) => {
 
     // jobId must always be present, see storeState and createRequest 
     const jobId = payload.jobId;
-    const executor = await jobs.getMachine(contextHelpers.getAdminContext(), jobId);
+    const executor = await jobs.getJobExecutor(contextHelpers.getAdminContext(), jobId);
     if (executor.cert_serial !== certSerial.toString()) {
         res.status(403);
         log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to create a request on behalf of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
