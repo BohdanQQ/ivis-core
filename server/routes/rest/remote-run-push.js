@@ -1,23 +1,14 @@
 'use strict';
-const {getSignalEntitySpec, allowedKeysCreate: allowedSignalKeysCreate} = require('../../lib/signal-helpers')
 const router = require('../../lib/router-async').create();
 const { emitter } = require('../../lib/task-events');
 const { RequestType, RemoteRunState } = require('../../../shared/remote-run');
 const { esConstants, scheduleRemoteRunFinished } = require('../../lib/task-handler');
 const knex = require('../../lib/knex');
-const { getIndexName } = require('../../lib/indexers/elasticsearch-common');
-const { filterObject } = require('../../lib/helpers');
-const { SignalSetType } = require('../../../shared/signal-sets');
-const { getSignalSetEntitySpec, allowedKeysCreate: allowedSignalSetKeysCreate } = require('../../lib/signal-set-helpers')
-const createSigSet = require('../../models/signal-sets').createTx;
-const createSignal = require('../../models/signals').createTx;
-const { getAdminContext } = require('../../lib/context-helpers');
-const { SignalSource } = require('../../../shared/signals');
 const { RunStatus } = require('../../../shared/jobs');
 const log = require("../../lib/log");
-const es = require('../../lib/elasticsearch');
 const remoteComms = require('../../lib/remote-executor-comms');
 const jobs = require('../../models/jobs');
+const jobRequests = require('../../lib/job-requests');
 
 const LOG_ID = 'remote-push'
 
@@ -81,7 +72,7 @@ router.postAsync('/remote/status', async (req, res) => {
     const outputToAppend = `${output || ''}${errors || ''}`;
     const finishedTimestamp = status.finished_at || null;
     const responseStatus = 200;
-    let stateWritten = null; 
+    let stateWritten = null;
     let jobId;
     // get admin context because there is none
     // and access to rest/remote should be protected by client certificates
@@ -158,7 +149,7 @@ router.postAsync('/remote/emit', async (req, res) => {
 });
 
 router.postAsync('/remote/runRequest', async (req, res) => {
-    
+
     if (!hasOwnProperties(req.body, ['type', 'payload'])) {
         res.status(400);
         res.json({});
@@ -199,9 +190,16 @@ async function storeState(payload) {
     const jobIdPresent = payload.jobId;
 
     if (statePresent && jobIdPresent) {
-        return await storeRunState(payload.jobId, payload.request[esConstants.STATE_FIELD]);
+        const stateStoreErr = await jobRequests.storeRunState(payload.jobId, payload.request[esConstants.STATE_FIELD]);
+        if (stateStoreErr) {
+            return {
+                ...stateStoreErr,
+                errStatus: 500
+            };
+        }
+        return {};
     } else {
-        const nspecFields = createMisssingList([jobIdPresent, statePresent], ['jobId', `${esConstants.STATE_FIELD}`]);
+        const nspecFields = jobRequests.createMisssingList([jobIdPresent, statePresent], ['jobId', `${esConstants.STATE_FIELD}`]);
         return { error: `${nspecFields} not specified`, errStatus: 400 };
     }
 }
@@ -211,132 +209,17 @@ async function createRequest(payload) {
     const setsPresent = payload.signalSets;
 
     if (jobIdPresent && setsPresent) {
-        return await processCreateRequest(payload.jobId, payload.signalSets, payload.signalsSpec);
+        const createResult = jobRequests.processCreateRequest(payload.jobId, payload.signalSets, payload.signalsSpec);
+        if (createResult && createResult.error) {
+            return {
+                ...createResult,
+                errStatus: 500
+            };
+        }
+        return createResult;
     } else {
         const nspecFields = createMisssingList([jobIdPresent, setsPresent], ['jobId', `signalSets`]);
         return { error: `${nspecFields} not specified`, errStatus: 400 };
-    }
-}
-
-// TODO: export from a different place
-
-/**
- * Store config from job, overwrites old config
- * @param id ID of the job config belongs to
- * @param state Config to store, JSON format
- * @returns {Promise<void>}
- */
-async function storeRunState(id, state) {
-    const jobBody = {};
-    jobBody[esConstants.STATE_FIELD] = state;
-    try {
-        await es.index({ index: esConstants.INDEX_JOBS, type: esConstants.TYPE_JOBS, id: id, body: jobBody });
-    } catch (err) {
-        // TODO
-        //log.error(LOG_ID, err);
-        return { error: err.message, errStatus: 500 };
-    }
-    // WARNING: only remote push counts on this line!!!
-    // TODO investigate effects on task handler 
-    return {};
-}
-
-
-/**
- * Process request for signal set and signals creation
- * Signals are specified in sigSet.signals
- * Uses same data format as web creation
- * @param jobId
- * @param signalSets
- * @param signalsSpec
- * @returns {Promise<IndexInfo>} Created indices and mapping
- */
-async function processCreateRequest(jobId, signalSets, signalsSpec) {
-    const esInfo = {};
-
-
-    try {
-        await knex.transaction(async (tx) => {
-            if (signalSets) {
-
-                if (!Array.isArray(signalSets)) {
-                    signalSets = [signalSets];
-                }
-
-                for (let signalSet of signalSets) {
-                    esInfo[signalSet.cid] = await createSignalSetWithSignals(tx, signalSet);
-                }
-            }
-
-            if (signalsSpec) {
-                for (let [sigSetCid, signals] of Object.entries(signalsSpec)) {
-                    const sigSet = await tx('signal_sets').where('cid', sigSetCid).first();
-                    if (!sigSet) {
-                        throw new Error(`Signal set with cid ${sigSetCid} not found`);
-                    }
-
-                    esInfo[sigSetCid] = esInfo[sigSetCid] || {};
-                    esInfo[sigSetCid]['index'] = getIndexName(sigSet);
-                    esInfo[sigSetCid]['signals'] = {};
-                    const createdSignals = {};
-
-                    if (!Array.isArray(signals)) {
-                        signals = [signals];
-                    }
-
-                    for (let signal of signals) {
-                        createdSignals[signal.cid] = await createComputedSignal(tx, sigSet.id, signal);
-                    }
-
-                    esInfo[sigSetCid]['signals'] = createdSignals;
-                }
-            }
-        });
-    } catch (error) {
-        log.error(LOG_ID, error);
-        esInfo.error = error.message;
-        esInfo.errStatus = 500;
-    }
-
-    return esInfo;
-
-
-    async function createSignalSetWithSignals(tx, signalSet) {
-        let signals = signalSet.signals;
-        const filteredSignalSet = filterObject(signalSet, allowedSignalSetKeysCreate);
-
-        filteredSignalSet.type = SignalSetType.COMPUTED;
-
-        filteredSignalSet.id = await createSigSet(tx, getAdminContext(), filteredSignalSet);
-        const ceatedSignalSet = await tx('signal_sets').where('id', filteredSignalSet.id).first();
-        const signalSetSpec = getSignalSetEntitySpec(ceatedSignalSet);
-
-        const createdSignalsSpecs = {};
-        if (signals) {
-            if (!Array.isArray(signals)) {
-                signals = [signals];
-            }
-
-            for (const signal of signals) {
-                createdSignalsSpecs[signal.cid] = await createComputedSignal(tx, filteredSignalSet.id, signal);
-            }
-        }
-        await tx('signal_sets_owners').insert({ job: jobId, set: filteredSignalSet.id });
-
-        signalSetSpec['signals'] = createdSignalsSpecs;
-        return signalSetSpec;
-    }
-
-    async function createComputedSignal(tx, signalSetId, signal) {
-        const filteredSignal = filterObject(signal, allowedSignalKeysCreate);
-        // Here are possible overwrites of input from job
-        filteredSignal.source = SignalSource.JOB;
-        const sigId = await createSignal(tx, getAdminContext(), signalSetId, filteredSignal);
-        const createdSignal = await tx('signals').where('id', sigId).first();
-
-        // TODO should add something like signal_sets_owners for signals probably
-        // QUESTION [redundant TODO]:     ^^^^^^^^^^^^^^^^^^ already exists? (see above tx('signal_sets_owners') )
-        return getSignalEntitySpec(createdSignal);
     }
 }
 
