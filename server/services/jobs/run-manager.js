@@ -2,123 +2,16 @@
 
 const config = require('../../lib/config');
 const knex = require('../../lib/knex');
-const es = require('../../lib/elasticsearch');
 const log = require('../../lib/log');
-const {RunStatus, JobMsgType} = require('../../../shared/jobs');
-const {SignalSetType} = require('../../../shared/signal-sets');
-const {SignalSource} = require('../../../shared/signals');
-const {getSignalEntitySpec, allowedKeysCreate: allowedSignalKeysCreate} = require('../../lib/signal-helpers')
-const {getSignalSetEntitySpec, allowedKeysCreate: allowedSignalSetKeysCreate} = require('../../lib/signal-set-helpers')
-const {getIndexName} = require('../../lib/indexers/elasticsearch-common');
-const {filterObject} = require('../../lib/helpers');
-const {getAdminContext} = require('../../lib/context-helpers');
-const createSigSet = require('../../models/signal-sets').createTx;
-const createSignal = require('../../models/signals').createTx;
+const { RunStatus, JobMsgType } = require('../../../shared/jobs');
+const { processCreateRequest, storeRunState } = require('../../lib/job-requests');
+const { getSuccessEventType, getOutputEventType, EventTypes } = require('../../lib/task-events');
 
-const {getSuccessEventType, getOutputEventType, EventTypes} = require('../../lib/task-events');
-
-const {TYPE_JOBS, INDEX_JOBS, STATE_FIELD} = require('../../lib/task-handler').esConstants
+const { STATE_FIELD } = require('../../lib/task-handler').esConstants
 const LOG_ID = 'Task-handler';
 
 function parseRequest(req) {
     return JSON.parse(req);
-}
-
-
-/**
- * Process request for signal set and signals creation
- * Signals are specified in sigSet.signals
- * Uses same data format as web creation
- * @param jobId
- * @param signalSets
- * @param signalsSpec
- * @returns {Promise<IndexInfo>} Created indices and mapping
- */
-async function processCreateRequest(jobId, signalSets, signalsSpec) {
-    const esInfo = {};
-
-
-    try {
-        await knex.transaction(async (tx) => {
-            if (signalSets) {
-
-                if (!Array.isArray(signalSets)) {
-                    signalSets = [signalSets];
-                }
-
-                for (let signalSet of signalSets) {
-                    esInfo[signalSet.cid] = await createSignalSetWithSignals(tx, signalSet);
-                }
-            }
-
-            if (signalsSpec) {
-                for (let [sigSetCid, signals] of Object.entries(signalsSpec)) {
-                    const sigSet = await tx('signal_sets').where('cid', sigSetCid).first();
-                    if (!sigSet) {
-                        throw new Error(`Signal set with cid ${sigSetCid} not found`);
-                    }
-
-                    esInfo[sigSetCid] = esInfo[sigSetCid] || {};
-                    esInfo[sigSetCid]['index'] = getIndexName(sigSet);
-                    esInfo[sigSetCid]['signals'] = {};
-                    const createdSignals = {};
-
-                    if (!Array.isArray(signals)) {
-                        signals = [signals];
-                    }
-
-                    for (let signal of signals) {
-                        createdSignals[signal.cid] = await createComputedSignal(tx, sigSet.id, signal);
-                    }
-
-                    esInfo[sigSetCid]['signals'] = createdSignals;
-                }
-            }
-        });
-    } catch (error) {
-        log.warn(LOG_ID, error);
-        esInfo.error = error.message;
-    }
-
-    return esInfo;
-
-
-    async function createSignalSetWithSignals(tx, signalSet) {
-        let signals = signalSet.signals;
-        const filteredSignalSet = filterObject(signalSet, allowedSignalSetKeysCreate);
-
-        filteredSignalSet.type = SignalSetType.COMPUTED;
-
-        filteredSignalSet.id = await createSigSet(tx, getAdminContext(), filteredSignalSet);
-        const ceatedSignalSet = await tx('signal_sets').where('id', filteredSignalSet.id).first();
-        const signalSetSpec = getSignalSetEntitySpec(ceatedSignalSet);
-
-        const createdSignalsSpecs = {};
-        if (signals) {
-            if (!Array.isArray(signals)) {
-                signals = [signals];
-            }
-
-            for (const signal of signals) {
-                createdSignalsSpecs[signal.cid] = await createComputedSignal(tx, filteredSignalSet.id, signal);
-            }
-        }
-        await tx('signal_sets_owners').insert({job: jobId, set: filteredSignalSet.id});
-
-        signalSetSpec['signals'] = createdSignalsSpecs;
-        return signalSetSpec;
-    }
-
-    async function createComputedSignal(tx, signalSetId, signal) {
-        const filteredSignal = filterObject(signal, allowedSignalKeysCreate);
-        // Here are possible overwrites of input from job
-        filteredSignal.source = SignalSource.JOB;
-        const sigId = await createSignal(tx, getAdminContext(), signalSetId, filteredSignal);
-        const createdSignal = await tx('signals').where('id', sigId).first();
-
-        // TODO should add something like signal_sets_owners for signals probably
-        return getSignalEntitySpec(createdSignal);
-    }
 }
 
 async function handleRequest(jobId, requestStr) {
@@ -160,7 +53,7 @@ async function handleRequest(jobId, requestStr) {
                     response.error = `Either signalSets or signals have to be specified`;
                 }
                 break;
-            case  JobMsgType.STORE_STATE:
+            case JobMsgType.STORE_STATE:
                 if (request[STATE_FIELD]) {
                     const reqResult = await storeRunState(jobId, request[STATE_FIELD]);
                     response = {
@@ -250,7 +143,7 @@ function createRunManager(jobId, runId, runOptions) {
                 let output = [...outputBuffer];
                 outputBuffer = [];
                 runOptions.emit(getOutputEventType(runId), output);
-                await knex('job_runs').update({output: knex.raw('CONCAT(COALESCE(`output`,\'\'), ?)', output.join(''))}).where('id', runId);
+                await knex('job_runs').update({ output: knex.raw('CONCAT(COALESCE(`output`,\'\'), ?)', output.join('')) }).where('id', runId);
             }
             timer = null;
         } catch (e) {
@@ -271,7 +164,7 @@ function createRunManager(jobId, runId, runOptions) {
                             limitReached = true;
                             if (config.tasks.printLimitReachedMessage === true) {
                                 try {
-                                    await knex('job_runs').update({output: knex.raw('CONCAT(`output`, \'INFO: max output storage capacity reached\')')}).where('id', runId);
+                                    await knex('job_runs').update({ output: knex.raw('CONCAT(`output`, \'INFO: max output storage capacity reached\')') }).where('id', runId);
 
                                     const maxMsg = 'INFO: max output capacity reached'
                                     if (!timer) {
@@ -305,24 +198,6 @@ function createRunManager(jobId, runId, runOptions) {
                 log.info(LOG_ID, `Job ${jobId} run ${runId}: unknown event ${type} `);
                 break;
         }
-    }
-}
-
-
-/**
- * Store config from job, overwrites old config
- * @param id ID of the job config belongs to
- * @param state Config to store, JSON format
- * @returns {Promise<void>}
- */
-async function storeRunState(id, state) {
-    const jobBody = {};
-    jobBody[STATE_FIELD] = state;
-    try {
-        await es.index({index: INDEX_JOBS, type: TYPE_JOBS, id: id, body: jobBody});
-    } catch (err) {
-        log.error(LOG_ID, err);
-        return {error: err.message};
     }
 }
 
