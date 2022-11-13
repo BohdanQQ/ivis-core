@@ -12,6 +12,7 @@ const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'hostn
 const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespace']);
 const remoteCert = require('../lib/remote-certificates');
 const log = require('../lib/log');
+const { getAdminContext } = require('../lib/context-helpers');
 const LOG_ID = 'job-execs';
 
 const EXEC_TYPEID = 'jobExecutor';
@@ -105,8 +106,9 @@ async function create(context, executor) {
             const certDecSerialString = BigInt(`0x${certHexSerial}`).toString();
             await tx(EXEC_TABLE).update({ 'cert_serial': certDecSerialString }).where('id', id);
         }
-        catch {
+        catch (error) {
             remoteCert.tryRemoveCertificate(filteredEntity.id);
+            await tx(EXEC_TABLE).update({ 'log': error.toString() }).where('id', filteredEntity.id);
             throw new interoperableErrors.ServerValidationError("Error when creating certificates");
         }
 
@@ -114,8 +116,8 @@ async function create(context, executor) {
             await executorInitializer[filteredEntity.type](filteredEntity, tx);
             await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
         }
-        catch {
-            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL }).where('id', filteredEntity.id);
+        catch (error) {
+            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL, 'log': error.toString() }).where('id', filteredEntity.id);
         }
 
         await shares.rebuildPermissionsTx(tx, { entityTypeId: EXEC_TYPEID, entityId: id });
@@ -226,7 +228,13 @@ async function getAllCerts(context, id) {
     });
 }
 
+async function appendToLogById(id, toAppend) {
+    return await knex.transaction(async tx => {
+        const { log } = await getById(getAdminContext(), id, false);
+        await tx(EXEC_TABLE).update({ 'log': `${log}${toAppend}` }).where('id', id);
+     });
+}
 
 module.exports = {
-    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts
+    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById
 }
