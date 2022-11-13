@@ -11,7 +11,7 @@ const httpsAgent = new https.Agent({
     ca: remoteCerts.getRemoteCACert(),
     cert: remoteCerts.getIVISRemoteCert(),
     key: remoteCerts.getIVISRemoteKey(),
-  });
+});
 
 const httpsClient = axios.create({ httpsAgent });
 
@@ -19,8 +19,14 @@ const remoteExecutorHandlers = {
     [MachineTypes.REMOTE_RUNNER_AGENT]: {
         run: handleRJRRun,
         stop: handleRJRStop,
-        getStatus: handleRJRStatus, 
+        getStatus: handleRJRStatus,
         removeRun: handleRJRRemove,
+    },
+    [MachineTypes.OCI_BASIC]: {
+        run: () => console.log("TODO run"),
+        stop: () => console.log("TODO stop"),
+        getStatus: () => console.log("TODO status"),
+        removeRun: () => console.log("TODO remove"),
     }
 }
 Object.freeze(remoteExecutorHandlers);
@@ -30,6 +36,7 @@ function getMachineURLBase(executionMachine) {
     const port = executionMachine.parameters.port;
     return `https://${executionMachine.hostname || executionMachine.ip_address}:${port}`;
 }
+
 async function handleRJRRun(executionMachine, runId, jobId, spec) {
     const taskId = (await knex('jobs').where('id', jobId).first()).task;
     const task = await knex('tasks').where('id', taskId).first();
