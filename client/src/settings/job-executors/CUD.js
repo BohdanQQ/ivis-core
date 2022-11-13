@@ -259,7 +259,7 @@ export default class CUD extends Component {
         let executorTypeOptions = CUD.getExecTypeOptions(t);
 
         const configSpec = this.getFormValue(EPARAMS_KEY);
-        const params = configSpec ? this.paramTypes.render(configSpec, this, false) : null;
+        const params = configSpec ? this.paramTypes.render(configSpec, this, isEdit) : null;
 
         let title = 'Add Job Executor'
         if (isEdit) {
@@ -304,7 +304,7 @@ export default class CUD extends Component {
                     <InputField id="hostname" label={t('Hostname')} disabled={isEdit}/>
                     <InputField id="ip_address" label={t('IP Address')} disabled={isEdit}/>
 
-                    <Dropdown id="type" label={t('Executor Type')} options={executorTypeOptions}  disabled={false}/>
+                    <Dropdown id="type" label={t('Executor Type')} options={executorTypeOptions}  disabled={isEdit}/>
                     <NamespaceSelect/>
 
                     {configSpec ?
