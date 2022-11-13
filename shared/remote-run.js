@@ -16,7 +16,8 @@ Object.freeze(RemoteRunState);
 
 const MachineTypes = {
     LOCAL: 'local',
-    REMOTE_RUNNER_AGENT: 'agent'
+    REMOTE_RUNNER_AGENT: 'agent',
+    OCI_BASIC: 'oci_basic'
 };
 Object.freeze(MachineTypes);
 
@@ -27,8 +28,45 @@ const MachineTypeParams = {
         'label': 'Port',
         'help': 'the port the Remote Job Runner is available on',
         'type': 'integer',
-    }] 
+    }],
+    [MachineTypes.OCI_BASIC]: [{
+        'id': 'size',
+        'label': 'Pool Size',
+        'help': 'Machine pool size',
+        'type': 'integer',
+    },
+    {
+        'id': 'tenancyID',
+        'label': 'Tenancy ID',
+        'help': 'OCID of the tenancy used to create pool\'s VMs',
+        'type': 'string',
+    },
+    {
+        'id': 'compartmentID',
+        'label': 'Compartment ID',
+        'help': 'OCID of the compartment used to create pool\'s VMs',
+        'type': 'string',
+    },
+    {
+        'id': 'shape',
+        'label': 'Shape',
+        'help': 'The shape of each of the pool\'s VM',
+        'type': 'string',
+    },
+    {
+        'id': 'shapeConfigCPU',
+        'label': 'Flexible Shape CPUs',
+        'help': 'Number of CPU cores (used if shape is flexible)',
+        'type': 'integer',
+    },
+    {
+        'id': 'shapeConfigRAM',
+        'label': 'Flexible Shape RAM',
+        'help': 'GBs of RAM (used if shape is flexible)',
+        'type': 'integer',
+    },
+    ]
 }
-Object.freeze(MachineTypeParams); 
+Object.freeze(MachineTypeParams);
 
 module.exports = { RequestType, RemoteRunState, MachineTypes, MachineTypeParams }
