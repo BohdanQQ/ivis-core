@@ -22,7 +22,7 @@ import {
 } from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 import {withTranslation} from "../../lib/i18n";
-import { MachineTypes } from '../../../../shared/remote-run';
+import { ExecutorStatus, MachineTypes } from '../../../../shared/remote-run';
 
 @withComponentMixins([
     withTranslation,
@@ -66,8 +66,22 @@ export default class List extends Component {
             {
                 actions: data => {
                     const actions = [];
-                    const perms = data[5];
+                    const perms = data[data.length - 1];
                     const type = data[3];
+                    const status = data[5];
+                    
+                    let refreshTimeout;
+                    if (status === ExecutorStatus.PROVISIONING) {
+                        actions.push({
+                            label: <Icon icon="spinner" family="fas" title={t('Provisioning')}/>
+                        });
+
+                        refreshTimeout = 2000;
+                    } else {
+                        actions.push({
+                                label: <Icon icon={status === ExecutorStatus.READY ? "check" : "times"} family="fas" title={t(status === ExecutorStatus.READY ? "ready" : "failure")}/>
+                            });
+                    }
 
                     if (type === MachineTypes.REMOTE_RUNNER_AGENT) {
                         actions.push({
@@ -93,7 +107,7 @@ export default class List extends Component {
                     tableAddDeleteButton(actions, this, perms, `rest/job-executors/${data[0]}`, data[1], t('Deleting job executor ...'), t('Job executor deleted'));
 
 
-                    return {actions};
+                    return {refreshTimeout, actions};
                 }
             }
         ];
