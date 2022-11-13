@@ -69,4 +69,12 @@ const MachineTypeParams = {
 }
 Object.freeze(MachineTypeParams);
 
-module.exports = { RequestType, RemoteRunState, MachineTypes, MachineTypeParams }
+const ExecutorStatus = {
+    READY: 0,
+    PROVISIONING: 1,
+    FAIL: 2
+}
+Object.freeze(ExecutorStatus);
+
+
+module.exports = { RequestType, RemoteRunState, MachineTypes, MachineTypeParams, ExecutorStatus }

@@ -13,7 +13,7 @@ const {resolveAbs, getFieldsetPrefix} = require('../../shared/param-types-helper
 const {getSignalEntitySpec} = require('../lib/signal-helpers')
 const {getSignalSetEntitySpec} = require('../lib/signal-set-helpers')
 const {createRunManager} = require('./jobs/run-manager');
-const { MachineTypes } = require('../../shared/remote-run');
+const { MachineTypes, ExecutorStatus } = require('../../shared/remote-run');
 const { handleRun: remoteRun, handleStop: remoteStop } = require('./jobs/remote-machine-handler');
 const jobs = require('../models/jobs');
 
@@ -885,6 +885,12 @@ async function handleRun(workEntry) {
         }
         
         if (executionMachine.type !== MachineTypes.LOCAL) {
+
+            if (executionMachine.status !== ExecutorStatus.READY) {
+                await onRunFail(jobId, runId, null, "Executor is not ready yet!");
+                return;
+            }
+
             spec.accessToken = await requestJobRestrictedAccessToken(jobId, runId);
             spec.state = await loadJobState(jobId);
             await remoteRun(executionMachine, runId, jobId, spec);

@@ -7,9 +7,9 @@ const dtHelpers = require('../lib/dt-helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
 const namespaceHelpers = require('../lib/namespace-helpers');
 const shares = require('./shares');
-const { MachineTypes, MachineTypeParams } = require('../../shared/remote-run');
-const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'hostname', 'ip_address', 'namespace']);
-const allowedKeysUpdate = new Set(['name', 'description', 'type', 'parameters', 'namespace']);
+const { MachineTypes, MachineTypeParams, ExecutorStatus } = require('../../shared/remote-run');
+const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'hostname', 'ip_address', 'namespace', 'status']);
+const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespace']);
 const remoteCert = require('../lib/remote-certificates');
 const log = require('../lib/log');
 const LOG_ID = 'job-execs';
@@ -18,10 +18,10 @@ const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
 function dbFieldName(name) {
     return `${EXEC_TABLE}.${name}`;
-} 
+}
 
 const columns = [
-    dbFieldName('id'), dbFieldName('name'), dbFieldName('description'), dbFieldName('type'), 'namespaces.name',
+    dbFieldName('id'), dbFieldName('name'), dbFieldName('description'), dbFieldName('type'), 'namespaces.name', dbFieldName('status')
 ];
 
 
@@ -41,6 +41,34 @@ async function listDTAjax(context, params) {
     );
 }
 
+/** 
+ * each call will be awaited => await only for reasonable time periods OR use the exexutor status to update the user 
+ * the function is allowed and expected to throw exceptions if the executor is not ready when the function returns  
+ */
+const executorInitializer = {
+    [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => { },
+    [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
+        // rough WIP outline
+        // compartmentId, tenancyId
+        // Global state:        vnic, subnet couners
+        // Executor state:      vm names, subnet name, ip adds?
+        // Executor parameters: vm count, tenancy, compartment, homogenous shape, [if shape flexible] shape config 
+        // pregenerate vm names     (timestamp, displayName field)
+        // pregenerate subnet name  (book-keeping the limits?)
+        // pregenerate subnet values        ---- || -----
+        // create master vm => init scheduler on vm
+        // OCI: provision resource
+        // SSH: provision pool sw 
+        // create pool vms (parallel) => init RJE on vm
+        // OCI: provision resource
+        // SSH: provision pool sw 
+        // check pool (send vm names/public/private IPs?)
+        // impl: ping pool members on remote executor ports
+        // set status READY
+        // on excpetion set status false
+    }
+}
+
 /**
  * Creates a job executor.
  * @param context
@@ -55,13 +83,14 @@ async function create(context, executor) {
         const filteredEntity = filterObject(executor, allowedKeys);
         filteredEntity.parameters = JSON.stringify(filteredEntity.parameters);
 
-        if(!Object.values(MachineTypes).includes(executor.type)) {
+        if (!Object.values(MachineTypes).includes(executor.type)) {
             throw new interoperableErrors.NotFoundError(`Type ${executor.type} not found`);
         }
 
         const ids = await tx(EXEC_TABLE).insert(filteredEntity);
         const id = ids[0];
         filteredEntity.id = id;
+        filteredEntity.status = ExecutorStatus.PROVISIONING;
 
         // certs are created for every executor (except the local one)
         // can also be adjusted to create only for those types that need it
@@ -79,6 +108,14 @@ async function create(context, executor) {
         catch {
             remoteCert.tryRemoveCertificate(filteredEntity.id);
             throw new interoperableErrors.ServerValidationError("Error when creating certificates");
+        }
+
+        try {
+            await executorInitializer[filteredEntity.type](filteredEntity, tx);
+            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
+        }
+        catch {
+            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL }).where('id', filteredEntity.id);
         }
 
         await shares.rebuildPermissionsTx(tx, { entityTypeId: EXEC_TYPEID, entityId: id });
@@ -102,6 +139,7 @@ async function getById(context, id, includePermissions = true) {
         const exec = await tx(EXEC_TABLE).where('id', id).first();
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'view');
         exec.parameters = JSON.parse(exec.parameters);
+        exec.state = JSON.parse(exec.state);
         if (includePermissions) {
             exec.permissions = await shares.getPermissionsTx(tx, context, EXEC_TYPEID, id);
         }
@@ -161,7 +199,7 @@ async function remove(context, id) {
         // TODO: decide what to do here - maybe stop pending runs addressed to the remote executor? (remove from work queue) 
         // disable jobs?
         remoteCert.tryRemoveCertificate(id);
-        await tx('jobs').where('executor_id', id).update({executor_id: 1});
+        await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
         await tx(EXEC_TABLE).where('id', id).del();
     });
 }
@@ -169,7 +207,6 @@ async function remove(context, id) {
 async function getAllCerts(context, id) {
     return await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'viewCerts');
-        
         try {
             const {
                 cert,
