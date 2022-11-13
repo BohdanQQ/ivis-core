@@ -23,10 +23,10 @@ const remoteExecutorHandlers = {
         removeRun: handleRJRRemove,
     },
     [MachineTypes.OCI_BASIC]: {
-        run: () => console.log("TODO run"),
-        stop: () => console.log("TODO stop"),
-        getStatus: () => console.log("TODO status"),
-        removeRun: () => console.log("TODO remove"),
+        run: () => { console.log("TODO run"); return Promise.resolve();},
+        stop: () => { console.log("TODO stop"); return Promise.resolve();},
+        getStatus: () => { console.log("TODO status"); return Promise.resolve();},
+        removeRun: () => { console.log("TODO remove"); return Promise.resolve();},
     }
 }
 Object.freeze(remoteExecutorHandlers);
