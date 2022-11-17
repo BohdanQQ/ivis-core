@@ -7,7 +7,7 @@ const dtHelpers = require('../lib/dt-helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
 const namespaceHelpers = require('../lib/namespace-helpers');
 const shares = require('./shares');
-const { MachineTypes, MachineTypeParams, ExecutorStatus } = require('../../shared/remote-run');
+const { MachineTypes, MachineTypeParams, ExecutorStatus, ExecutorStateDefaults } = require('../../shared/remote-run');
 const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'hostname', 'ip_address', 'namespace', 'status']);
 const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespace']);
 const remoteCert = require('../lib/remote-certificates');
@@ -68,7 +68,7 @@ const executorInitializer = {
         // set status READY
         // on excpetion set status false
     }
-}
+};
 
 /**
  * Creates a job executor.
@@ -92,6 +92,7 @@ async function create(context, executor) {
         const id = ids[0];
         filteredEntity.id = id;
         filteredEntity.status = ExecutorStatus.PROVISIONING;
+        filteredEntity.state = JSON.stringify(ExecutorStateDefaults[executor.type]);
 
         // certs are created for every executor (except the local one)
         // can also be adjusted to create only for those types that need it
@@ -117,6 +118,7 @@ async function create(context, executor) {
             await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
         }
         catch (error) {
+            log.error(LOG_ID, error);
             await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL, 'log': error.toString() }).where('id', filteredEntity.id);
         }
 
