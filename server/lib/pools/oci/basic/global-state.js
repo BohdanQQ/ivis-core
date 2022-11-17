@@ -2,6 +2,7 @@ const knex = require('../../../knex');
 const { MachineTypes } = require('../../../../../shared/remote-run');
 const EXECUTOR_TYPE = MachineTypes.OCI_BASIC;
 const GLOBAL_EXEC_STATE_TABLE = 'global_executor_type_state';
+const VCN_CIDR_BLOCK = '11.0.0.0/16';
 
 function getNextAvailableIpRange(ipsUsed) {
     let expectedIndex = 1;
@@ -77,5 +78,6 @@ async function registerPoolRemoval({ subnetMask }) {
 
 module.exports = {
     createNewPoolParameters,
-    registerPoolRemoval
+    registerPoolRemoval,
+    VCN_CIDR_BLOCK
 }
