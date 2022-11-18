@@ -7,13 +7,17 @@ const dtHelpers = require('../lib/dt-helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
 const namespaceHelpers = require('../lib/namespace-helpers');
 const shares = require('./shares');
-const { MachineTypes, MachineTypeParams, ExecutorStatus } = require('../../shared/remote-run');
+const { MachineTypes, MachineTypeParams, ExecutorStatus, ExecutorStateDefaults } = require('../../shared/remote-run');
 const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'hostname', 'ip_address', 'namespace', 'status']);
 const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespace']);
 const remoteCert = require('../lib/remote-certificates');
 const log = require('../lib/log');
 const { getAdminContext } = require('../lib/context-helpers');
 const LOG_ID = 'job-execs';
+const {
+    createNewPoolParameters,
+    registerPoolRemoval
+} = require('../lib/pools/oci/basic/global-state');
 
 const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
@@ -49,6 +53,10 @@ async function listDTAjax(context, params) {
 const executorInitializer = {
     [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => { },
     [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
+        const {
+            subnetMask
+        } = await createNewPoolParameters();
+        await tx(EXEC_TABLE).update({ 'state': JSON.stringify({ subnetMask }) }).where('id', filteredEntity.id);
         // rough WIP outline
         // compartmentId, tenancyId
         // Global state:        vnic, subnet couners
@@ -68,7 +76,7 @@ const executorInitializer = {
         // set status READY
         // on excpetion set status false
     }
-}
+};
 
 /**
  * Creates a job executor.
@@ -92,6 +100,7 @@ async function create(context, executor) {
         const id = ids[0];
         filteredEntity.id = id;
         filteredEntity.status = ExecutorStatus.PROVISIONING;
+        filteredEntity.state = JSON.stringify(ExecutorStateDefaults[executor.type]);
 
         // certs are created for every executor (except the local one)
         // can also be adjusted to create only for those types that need it
@@ -117,6 +126,7 @@ async function create(context, executor) {
             await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
         }
         catch (error) {
+            log.error(LOG_ID, error);
             await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL, 'log': error.toString() }).where('id', filteredEntity.id);
         }
 
@@ -186,6 +196,12 @@ async function updateWithConsistencyCheck(context, executor) {
 
 }
 
+const executorDestructor = {
+    [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => { },
+    [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
+        await registerPoolRemoval({ subnetMask: filteredEntity.state.subnetMask });
+    }
+}
 
 /**
  * Remove job executor.
@@ -201,6 +217,10 @@ async function remove(context, id) {
         // TODO: decide what to do here - maybe stop pending runs addressed to the remote executor? (remove from work queue) 
         // disable jobs?
         remoteCert.tryRemoveCertificate(id);
+        const exec = await getById(context, id, false);
+
+        await executorDestructor[exec.type](exec, tx);
+        
         await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
         await tx(EXEC_TABLE).where('id', id).del();
     });

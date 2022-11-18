@@ -75,6 +75,30 @@ const ExecutorStatus = {
     FAIL: 2
 }
 Object.freeze(ExecutorStatus);
+// TODO rename the following two
+const GlobalExecutorStateDefaults = {
+    [MachineTypes.LOCAL]: {},
+    [MachineTypes.REMOTE_RUNNER_AGENT]: {},
+    [MachineTypes.OCI_BASIC]: {
+        'ipsUsed': [],
+        'vcn': null,
+        'routeTable': null,
+        'gateway': null,        
+    }
+}
+Object.freeze(GlobalExecutorStateDefaults);
 
+const ExecutorStateDefaults = {
+    [MachineTypes.LOCAL]: {},
+    [MachineTypes.REMOTE_RUNNER_AGENT]: {},
+    [MachineTypes.OCI_BASIC]: {
+        'subnetId': null, 
+        'subnetMask': null,
+        'masterInstanceId': null, 
+        'masterInstanceIp': null, 
+        'poolInstanceIds': null,
+    }
+}
+Object.freeze(ExecutorStateDefaults);
 
-module.exports = { RequestType, RemoteRunState, MachineTypes, MachineTypeParams, ExecutorStatus }
+module.exports = { RequestType, RemoteRunState, MachineTypes, MachineTypeParams, ExecutorStatus, GlobalExecutorStateDefaults, ExecutorStateDefaults }
