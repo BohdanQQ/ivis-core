@@ -6,7 +6,7 @@ const TYPE_COL = 'type';
 exports.up = (knex, Promise) => (async () => {
     await knex.schema.createTable(GLOBAL_EXEC_STATE_TABLE, table => {
         table.string(TYPE_COL).primary();
-        table.string(STATE_COL).notNullable();
+        table.string(STATE_COL, 10000).notNullable();
     });
     for (const key in MachineTypes) {
         if (Object.hasOwnProperty.call(MachineTypes, key)) {
