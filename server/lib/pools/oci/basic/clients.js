@@ -18,7 +18,6 @@ if (!config.oci.credsPath || !config.oci.compartmentId || !config.oci.tenancyId)
 else {
     const OCI_CREDS_FILE_PATH = config.oci.credsPath;
 
-
     const authenticationDetailsProvider = new common.ConfigFileAuthenticationDetailsProvider(OCI_CREDS_FILE_PATH);
     const waiterFailAfterSeconds = 5 * 60;
     const delayMaxSeconds = 30;
@@ -28,17 +27,17 @@ else {
     };
 
     const computeClient = new core.ComputeClient({
-        authenticationDetailsProvider
+        authenticationDetailsProvider: authenticationDetailsProvider
     });
 
     const workRequestClient = new wr.WorkRequestClient({
-        authenticationDetailsProvider
+        authenticationDetailsProvider: authenticationDetailsProvider
     });
 
     const computeWaiter = computeClient.createWaiters(workRequestClient, waiterConfiguration);
 
     const virtualNetworkClient = new core.VirtualNetworkClient({
-        authenticationDetailsProvider
+        authenticationDetailsProvider: authenticationDetailsProvider
     });
 
     const virtualNetworkWaiter = virtualNetworkClient.createWaiters(
@@ -56,5 +55,7 @@ else {
         virtualNetworkClient,
         virtualNetworkWaiter,
         identityClient,
+        COMPARTMENT_ID: config.oci.compartmentId,
+        TENANCY_ID: config.oci.tenancyId
     };
 }
