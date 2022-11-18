@@ -1,14 +1,13 @@
 const knex = require('../../../knex');
 const config = require('../../../config');
 const {
-    virtualNetworkClient, virtualNetworkWaiter
+    virtualNetworkClient, virtualNetworkWaiter, COMPARTMENT_ID
 } = require('./clients');
 const { MachineTypes } = require('../../../../../shared/remote-run');
 const EXECUTOR_TYPE = MachineTypes.OCI_BASIC;
 const GLOBAL_EXEC_STATE_TABLE = 'global_executor_type_state';
 const VCN_CIDR_BLOCK = '11.0.0.0/16';
 const RESERVED_VCN_NAME = 'IVIS-POOL-VCN';
-const COMPARTMENT_ID = config.oci.compartmentId;
 
 async function createVcn() {
     const vcnRequest = {
@@ -141,6 +140,7 @@ async function setupVcnIfNeeded() {
 }
 
 async function getVcn() {
+    checkOCICanBeUsed();
     let state = await getGlobalStateForOCIExecType(knex);
     if (state.vcn) {
         return state.vcn;
@@ -224,6 +224,7 @@ async function storeIPsUsed(ipsUsed) {
 }
 
 async function createNewPoolParameters() {
+    checkOCICanBeUsed();
     let ipsUsed = await getIPsUsed();
     const ipRange = getNextAvailableIpRange(ipsUsed);
     if (ipRange === null) {
@@ -239,6 +240,7 @@ async function createNewPoolParameters() {
 }
 
 async function registerPoolRemoval({ subnetMask }) {
+    checkOCICanBeUsed();
     const searchResult = /^11\.0\.(?<index>[0-9]{1,3})\.0\/24$/g.exec(subnetMask);
     if (searchResult === null || !searchResult.groups || !searchResult.groups.index) {
         throw Error(`Invalid subnetMask provided: ${subnetMask}`);
@@ -251,6 +253,13 @@ async function registerPoolRemoval({ subnetMask }) {
     let ipsUsed = await getIPsUsed();
     ipsUsed = ipsUsed.filter((x) => x.index != indexToRemove);
     await storeIPsUsed(ipsUsed);
+}
+
+
+function checkOCICanBeUsed() {
+    if (!virtualNetworkClient || !virtualNetworkWaiter || !COMPARTMENT_ID) {
+        throw new Error("Oracle cloud infrastructure is misconfigured and cannot be used!");
+    }
 }
 
 module.exports = {
