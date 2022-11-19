@@ -16,8 +16,10 @@ const { getAdminContext } = require('../lib/context-helpers');
 const LOG_ID = 'job-execs';
 const {
     createNewPoolParameters,
-    registerPoolRemoval
+    registerPoolRemoval,
+    getVcn
 } = require('../lib/pools/oci/basic/global-state');
+const { createOCIBasicPool } = require('../lib/pools/oci/basic/oci-basic');
 
 const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
@@ -46,17 +48,46 @@ async function listDTAjax(context, params) {
     );
 }
 
+
+async function logErrorToExecutor(executorId, precedingMessage, error) {
+    const errMsg = `${precedingMessage}, error:\n${error.toString()}`;
+    log.error(LOG_ID, errMsg);
+    log.error(LOG_ID, error.stack);
+    await appendToLogById(executorId, errMsg);
+}
 /** 
  * each call will be awaited => await only for reasonable time periods OR use the exexutor status to update the user 
  * the function is allowed and expected to throw exceptions if the executor is not ready when the function returns  
  */
 const executorInitializer = {
-    [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => { },
+    [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => {
+        await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
+    },
     [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
-        const {
-            subnetMask
-        } = await createNewPoolParameters();
-        await tx(EXEC_TABLE).update({ 'state': JSON.stringify({ subnetMask }) }).where('id', filteredEntity.id);
+        (async () => {
+            let error = null;
+            try {
+                const vcn = await getVcn();
+                log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
+                const state = await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters, vcn);
+                if (state.error !== null) {
+                    error = state.error;
+                }
+                let stateToSave = state;
+                delete stateToSave.error;
+
+                await knex(EXEC_TABLE).update({ 'state': JSON.stringify(stateToSave) }).where('id', filteredEntity.id);
+            } catch (err) {
+                error = err;
+            } finally {
+                if (error === null) {
+                    await knex(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
+                    return;
+                }
+                await logErrorToExecutor(filteredEntity.id, "Cannot create OCI pool", error);
+                await knex(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL }).where('id', filteredEntity.id);
+            }
+        })();
         // rough WIP outline
         // compartmentId, tenancyId
         // Global state:        vnic, subnet couners
@@ -89,8 +120,12 @@ async function create(context, executor) {
         await shares.enforceEntityPermissionTx(tx, context, 'namespace', executor.namespace, 'createExec');
         await namespaceHelpers.validateEntity(tx, executor);
 
-        const filteredEntity = filterObject(executor, allowedKeys);
+        let filteredEntity = filterObject(executor, allowedKeys);
+        const jsonParams = filteredEntity.parameters;
         filteredEntity.parameters = JSON.stringify(filteredEntity.parameters);
+        filteredEntity.state = JSON.stringify(ExecutorStateDefaults[executor.type]);
+        filteredEntity.log = '';
+        filteredEntity.status = ExecutorStatus.PROVISIONING;
 
         if (!Object.values(MachineTypes).includes(executor.type)) {
             throw new interoperableErrors.NotFoundError(`Type ${executor.type} not found`);
@@ -98,14 +133,22 @@ async function create(context, executor) {
 
         const ids = await tx(EXEC_TABLE).insert(filteredEntity);
         const id = ids[0];
+        await shares.rebuildPermissionsTx(tx, { entityTypeId: EXEC_TYPEID, entityId: id });
         filteredEntity.id = id;
-        filteredEntity.status = ExecutorStatus.PROVISIONING;
-        filteredEntity.state = JSON.stringify(ExecutorStateDefaults[executor.type]);
-
+        filteredEntity.parameters = jsonParams;
+        filteredEntity.state = ExecutorStateDefaults[executor.type];
         // certs are created for every executor (except the local one)
         // can also be adjusted to create only for those types that need it
         // and created on executor type update
 
+        // TODO: move certificate creation responsibility to the executor initializer
+        // reason: initializer must have control over cert generation because of the certificate's 
+        // dependency on either the hostname or the IP address of the executor
+
+        // this also implies that the executor IP address is a executor-type related and thus cannot
+        // be simply required for each executor beforehand
+        // (see how OCI basic works - the master peer's public IP is needed but the peer's IP is known
+        // only after the peer has been created)
         try {
             const certHexSerial = await remoteCert.createRemoteExecutorCertificate(filteredEntity);
             if (certHexSerial === null) {
@@ -117,20 +160,18 @@ async function create(context, executor) {
         }
         catch (error) {
             remoteCert.tryRemoveCertificate(filteredEntity.id);
-            await tx(EXEC_TABLE).update({ 'log': error.toString() }).where('id', filteredEntity.id);
+            await logErrorToExecutor(filteredEntity.id, "Error when creating certificates", error);
+            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL }).where('id', filteredEntity.id);
             throw new interoperableErrors.ServerValidationError("Error when creating certificates");
         }
 
         try {
             await executorInitializer[filteredEntity.type](filteredEntity, tx);
-            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
         }
         catch (error) {
-            log.error(LOG_ID, error);
-            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL, 'log': error.toString() }).where('id', filteredEntity.id);
+            await logErrorToExecutor(filteredEntity.id, "Executor Initialized failed", error);
+            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL }).where('id', filteredEntity.id);
         }
-
-        await shares.rebuildPermissionsTx(tx, { entityTypeId: EXEC_TYPEID, entityId: id });
 
         return id;
     });
@@ -220,7 +261,7 @@ async function remove(context, id) {
         const exec = await getById(context, id, false);
 
         await executorDestructor[exec.type](exec, tx);
-        
+
         await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
         await tx(EXEC_TABLE).where('id', id).del();
     });
@@ -252,7 +293,7 @@ async function appendToLogById(id, toAppend) {
     return await knex.transaction(async tx => {
         const { log } = await getById(getAdminContext(), id, false);
         await tx(EXEC_TABLE).update({ 'log': `${log}${toAppend}` }).where('id', id);
-     });
+    });
 }
 
 module.exports = {
