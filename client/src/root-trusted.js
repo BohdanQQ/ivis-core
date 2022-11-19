@@ -1,7 +1,7 @@
 'use strict';
 
 import './lib/public-path';
-
+import { Panel } from './lib/panel';
 import em from './lib/extension-manager';
 import emCommonDefaults from '../../shared/em-common-defaults';
 
@@ -61,9 +61,10 @@ import RecordsCUD from './settings/signal-sets/RecordsCUD';
 import SignalsList from './settings/signal-sets/signals/List';
 import SignalsCUD from './settings/signal-sets/signals/CUD';
 
-import JobExecList from './settings/job-executors/List'
+import JobExecList from './settings/job-executors/List';
 import JobExecCUD from './settings/job-executors/CUD';
-import CertDisplay from './settings/job-executors/CertDisplay'
+import CertDisplay from './settings/job-executors/CertDisplay';
+import ExecutorLog from './settings/job-executors/ExecutorLog';
 
 import SettingsSidebar from './settings/Sidebar';
 
@@ -735,6 +736,15 @@ const getStructure = t => {
                                             execCerts: params => `rest/job-executors/${params.execId}/certs`
                                         },
                                         panelRender: props => <CertDisplay entity={props.resolved.execCerts}/>
+                                    },
+                                    log: {
+                                        title: t('Log'),
+                                        link: params => `/settings/job-executors/${params.execId}/log`,
+                                        visible: resolved => resolved.executor.permissions.includes('view'),
+                                        panelRender: props => 
+                                            <Panel title={t('Executor log of ') + props.resolved.executor.name}>
+                                                <ExecutorLog log={props.resolved.executor.log} />
+                                            </Panel>
                                     },
                                     share: {
                                         title: t('Share'),

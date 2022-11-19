@@ -90,6 +90,11 @@ export default class List extends Component {
                         });
                     }
 
+                    actions.push({
+                        label: <Icon icon="file-alt" family="far" title={t('View executor log')} />,
+                        link: `/settings/job-executors/${data[0]}/log`
+                    });
+
                     if (perms.includes('edit')) {
                         actions.push({
                             label: <Icon icon="edit" title={t('Settings')}/>,
