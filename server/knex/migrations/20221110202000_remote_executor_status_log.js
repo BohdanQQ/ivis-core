@@ -8,7 +8,7 @@ exports.up = (knex, Promise) => (async () => {
     await knex.schema.table(EXECUTOR_TABLE, table => {
         table.string(STATE_COL, 10000).notNullable().defaultTo("{}");
         table.integer(STATUS_COL).notNullable().defaultTo(ExecutorStatus.FAIL);
-        table.string(LOG_COL).notNullable().defaultTo("");
+        table.text(LOG_COL).notNullable().defaultTo("");
     });
 })();
 
