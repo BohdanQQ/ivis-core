@@ -11,6 +11,18 @@ const GLOBAL_EXEC_STATE_TABLE = 'global_executor_type_state';
 const VCN_CIDR_BLOCK = '11.0.0.0/16';
 const RESERVED_VCN_NAME = 'IVIS-POOL-VCN';
 
+async function isSavedVcnOk(vcnId) {
+    const response = await virtualNetworkClient.getVcn({vcnId});
+    if (response.vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminated || response.vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminating) {
+        return false;
+    } else {
+        await virtualNetworkWaiter.forVcn( { vcnId },
+            core.models.Vcn.LifecycleState.Available
+        );
+        return true;
+    }
+}
+
 async function createVcn() {
     const vcnRequest = {
         createVcnDetails: {
@@ -20,7 +32,7 @@ async function createVcn() {
         }
     };
 
-    log.verbose(LOG_ID, `create VCN: ${vcnRequest}`);
+    log.verbose(LOG_ID, 'create VCN: ',vcnRequest);
     let vcnResponse = await virtualNetworkClient.createVcn(vcnRequest);
 
     const vcnWaitRequest = {
@@ -75,19 +87,53 @@ async function addGatewayToVcnRouteTable(vcnId, gatewayId) {
     return tableId;
 }
 
+async function createSecurityList(vcnId) {
+    const getPortRange = (port) => { return { max: port, min: port }; };
+    const getInRule = (port) => {
+        return {
+            source: '0.0.0.0/0',
+            protocol: "6",
+            tcpOptions: {
+                destinationPortRange: getPortRange(port),
+            }
+        };
+    };
+    const inRules = [getInRule(22), getInRule(80), getInRule(443)];
+    const outRules = [{
+        destination: '0.0.0.0/0',
+        protocol: "all",
+    }];
+
+    log.verbose(LOG_ID, 'creating Security list for VCN ', vcnId, '\nwith INGRESS rules: ', inRules, '\nEGRESS rules: ', outRules);
+    const listResponse = await virtualNetworkClient.createSecurityList({
+        createSecurityListDetails: {
+            compartmentId: COMPARTMENT_ID,
+            vcnId,
+            egressSecurityRules: outRules,
+            ingressSecurityRules: inRules,
+        }
+    });
+    const list = await virtualNetworkWaiter.forSecurityList(
+        { securityListId: listResponse.securityList.id },
+        core.models.SecurityList.LifecycleState.Available);
+    return list.securityList.id;
+}
+
 /**
- * @returns { {vcn: string, routeTable: string, gateway: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success   
+ * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success   
  */
 async function setupOCINetwork() {
     let retVal = {
         'vcn': null,
         'routeTable': null,
         'gateway': null,
+        'securityList': null,
         'err': null
     };
 
     try {
         retVal.vcn = await createVcn();
+        retVal.securityList = await createSecurityList(retVal.vcn);
         retVal.gateway = await createGateway(retVal.vcn);
         retVal.routeTable = await addGatewayToVcnRouteTable(retVal.vcn, retVal.gateway);
     } catch (err) {
@@ -144,23 +190,25 @@ async function setupVcnIfNeeded() {
     let state = await getGlobalStateForOCIExecType(knex);
     if (setupTask === null) {
         const vcnExists = vcnId !== null;
-        const networkingIsOk = state.vnc && state.routeTable && state.gateway;
+        const networkingIsOk = state.vnc && state.routeTable && state.gateway && state.securityList;
         if (vcnExists && networkingIsOk) {
             setupTask = undefined;
             log.info(LOG_ID, `Already existing VCN + all network parameters are present in state: ${state}`);
-            return { vcn: state.vcn, routeTable: state.routeTable, gateway: state.gateway, err: null };
+            return { vcn: state.vcn, routeTable: state.routeTable, gateway: state.gateway, securityList: state.securityList, err: null };
         }
 
         log.info(LOG_ID, `Starting VCN setup task`);
         setupTask = vcnExists ? tryRecoverOCINetwork(vcnId) : setupOCINetwork();
         const result = await setupTask;
-        await updateStateWithDiff(result);
+        let diff = {...result};
+        delete diff.err;
+        await updateStateWithDiff(diff);
         setupTask = undefined;
         return result;
     }
     else if (setupTask === undefined) {
         log.info(LOG_ID, `VCN setup task has already run -> return state values: ${state}`);
-        return { vcn: state.vcn, routeTable: state.routeTable, gateway: state.gateway, err: null };
+        return { vcn: state.vcn, routeTable: state.routeTable, gateway: state.gateway, securityList: state.securityList, err: null };
     }
     else {
         log.info(LOG_ID, `VCN setup task has already started but has not finished -> wait for the task to finish`);
@@ -172,14 +220,24 @@ async function getVcn() {
     checkOCICanBeUsed();
     let state = await getGlobalStateForOCIExecType(knex);
     if (state.vcn) {
-        log.info(LOG_ID, `VCN ID retrieved from global state: ${state}`);
-        return state.vcn;
+        log.info(LOG_ID, 'VCN ID retrieved from global state: ', state);
+        try {
+            if (await isSavedVcnOk(state.vcn)) {
+                return state.vcn;
+            } // otherwise reset the state vcn and recreate the vcn
+            else {
+                await updateStateWithDiff({vcn: null});
+            }
+        } catch (err) {
+            log.error(LOG_ID, "saved VCN check failed", err);
+            await updateStateWithDiff({vcn: null});
+        }
     }
-    let vncCreationResult = await setupVcnIfNeeded();
-    if (!vncCreationResult.vcn || !vncCreationResult.routeTable || !vncCreationResult.gateway) {
-        throw vncCreationResult.err;
+    let vcnCreationResult = await setupVcnIfNeeded();
+    if (!vcnCreationResult.vcn || !vcnCreationResult.routeTable || !vcnCreationResult.gateway) {
+        throw vcnCreationResult.err;
     }
-    return vncCreationResult.vcn;
+    return vcnCreationResult.vcn;
 }
 
 function getNextAvailableIpRange(ipsUsed) {
@@ -196,6 +254,9 @@ function getNextAvailableIpRange(ipsUsed) {
     return { index: expectedIndex };
 }
 
+/**
+ * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string}}   
+ */
 async function getGlobalStateForOCIExecType(tx) {
     const json = (await tx(GLOBAL_EXEC_STATE_TABLE).where('type', EXECUTOR_TYPE).first()).state;
     if (!json) {
@@ -225,6 +286,9 @@ function getStateForDb(state) {
     }
     if (!state.gateway) {
         state.gateway = null;
+    }
+    if (!state.securityList) {
+        state.securityList = null;
     }
     return JSON.stringify(state);
 }
@@ -302,5 +366,6 @@ module.exports = {
     createNewPoolParameters,
     registerPoolRemoval,
     getVcn,
-    VCN_CIDR_BLOCK
+    VCN_CIDR_BLOCK,
+    getGlobalStateForOCIExecType
 }

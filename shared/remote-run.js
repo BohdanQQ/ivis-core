@@ -83,7 +83,8 @@ const GlobalExecutorStateDefaults = {
         'ipsUsed': [],
         'vcn': null,
         'routeTable': null,
-        'gateway': null,        
+        'gateway': null,      
+        'securityList': null,  
     }
 }
 Object.freeze(GlobalExecutorStateDefaults);

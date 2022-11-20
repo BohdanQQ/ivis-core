@@ -6,6 +6,7 @@ const {
     registerPoolRemoval,
     VCN_CIDR_BLOCK,
     getVcn,
+    getGlobalStateForOCIExecType
 } = require('./global-state');
 const core = require("oci-core");
 const {
@@ -15,12 +16,13 @@ const {
 
 const log = require('../../../log');
 const { getAuthorizedKeyFormat } = require("../../../instance-ssh");
+const knex = require("../../../knex");
 const LOG_ID = 'ocibasic-pool-creator';
 
 const POOL_PEER_OS = 'Oracle Linux';
 function getSubnetDisplayName(executorId) { return `IVIS-executor-${executorId}-subnet` };
 
-async function createSubnet(executorId, subnetMask, vcnId) {
+async function createSubnet(executorId, subnetMask, vcnId, securityListId) {
 
     log.info(LOG_ID, `creating subnet with mask ${subnetMask} in VCN ${vcnId} for the executor ID ${executorId}`);
     const subnetRequest = {
@@ -28,7 +30,8 @@ async function createSubnet(executorId, subnetMask, vcnId) {
             cidrBlock: subnetMask,
             compartmentId: COMPARTMENT_ID,
             displayName: getSubnetDisplayName(executorId),
-            vcnId
+            vcnId,
+            securityListIds: [securityListId]
         }
     };
     log.verbose(LOG_ID, 'subnet request', subnetRequest);
@@ -161,7 +164,7 @@ async function shutdownInstance() {
 // state: { subnetId, subnetMask, masterInstanceId, masterInstanceIp, poolInstanceIds }
 // params { size, shape, shapeConfigCPU, shapeConfigRAM }
 // TODO: mutex all 3 fns
-async function createOCIBasicPool(executorId, params, vcnId) {
+async function createOCIBasicPool(executorId, params) {
     let retVal = {
         subnetId: null,
         subnetMask: null,
@@ -170,11 +173,11 @@ async function createOCIBasicPool(executorId, params, vcnId) {
         poolInstanceIds: [],
         error: null
     };
-
     try {
+        const executorGlobalState = await getGlobalStateForOCIExecType(knex);
         const poolParams = await createNewPoolParameters();
         retVal.subnetMask = poolParams.subnetMask;
-        retVal.subnetId = await createSubnet(executorId, poolParams.subnetMask, vcnId);
+        retVal.subnetId = await createSubnet(executorId, poolParams.subnetMask, executorGlobalState.vcn, executorGlobalState.securityList);
         retVal.masterInstanceId = await createInstance(executorId, 0, retVal.subnetId, params);
         retVal.masterInstanceIp = await getInstanceIp(retVal.masterInstanceId);
         retVal.poolInstanceIds = [retVal.masterInstanceId];

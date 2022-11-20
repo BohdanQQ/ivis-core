@@ -69,11 +69,11 @@ const executorInitializer = {
             try {
                 const vcn = await getVcn();
                 log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
-                const state = await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters, vcn);
+                const state = await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters);
                 if (state.error !== null) {
                     error = state.error;
                 }
-                let stateToSave = state;
+                let stateToSave = { ...state };
                 delete stateToSave.error;
 
                 await knex(EXEC_TABLE).update({ 'state': JSON.stringify(stateToSave) }).where('id', filteredEntity.id);
