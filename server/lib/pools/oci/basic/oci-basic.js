@@ -124,7 +124,7 @@ async function createInstance(executorId, instanceIndex, subnetId, params) {
     return getInstanceResponse.instance.id;
 }
 
-async function getInstanceIp(instanceId) {
+async function getInstanceVnic(instanceId) {
     const attachments = await computeClient.listVnicAttachments({
         compartmentId: COMPARTMENT_ID,
         instanceId
@@ -134,8 +134,7 @@ async function getInstanceIp(instanceId) {
     }
 
     const vnicId = attachments.items[0].vnicId;
-    const vnic = await virtualNetworkClient.getVnic({ vnicId });
-    return vnic.vnic.publicIp;
+    return (await virtualNetworkClient.getVnic({ vnicId })).vnic;
 }
 
 async function waitForInstanceSSH() {
@@ -161,7 +160,7 @@ async function shutdownInstance() {
 }
 
 // OCI Homogenous pool:
-// state: { subnetId, subnetMask, masterInstanceId, masterInstanceIp, poolInstanceIds }
+// state: { subnetId, subnetMask, masterInstanceId, masterInstanceIp, masterInstanceSubnetIp, poolInstanceIds }
 // params { size, shape, shapeConfigCPU, shapeConfigRAM }
 // TODO: mutex all 3 fns
 async function createOCIBasicPool(executorId, params) {
@@ -170,6 +169,7 @@ async function createOCIBasicPool(executorId, params) {
         subnetMask: null,
         masterInstanceId: null,
         masterInstanceIp: null,
+        masterInstanceSubnetIp: null,
         poolInstanceIds: [],
         error: null
     };
@@ -179,14 +179,16 @@ async function createOCIBasicPool(executorId, params) {
         retVal.subnetMask = poolParams.subnetMask;
         retVal.subnetId = await createSubnet(executorId, poolParams.subnetMask, executorGlobalState.vcn, executorGlobalState.securityList);
         retVal.masterInstanceId = await createInstance(executorId, 0, retVal.subnetId, params);
-        retVal.masterInstanceIp = await getInstanceIp(retVal.masterInstanceId);
+        const vnic = await getInstanceVnic(retVal.masterInstanceId);
+        retVal.masterInstanceIp = vnic.publicIp;
+        retVal.masterInstanceSubnetIp = vnic.privateIp;
         retVal.poolInstanceIds = [retVal.masterInstanceId];
     } catch (error) {
         retVal.error = error;
     }
 
-    if (retVal.error === null && retVal.masterInstanceIp === null) {
-        retVal.error = new Error('MasterInstanceIP not found');
+    if (retVal.error === null && (retVal.masterInstanceIp === null || retVal.masterInstanceSubnetIp === null)) {
+        retVal.error = new Error('MasterInstance(Subnet)IP not found');
     }
     return retVal;
 }

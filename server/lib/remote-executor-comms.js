@@ -31,10 +31,10 @@ const remoteExecutorHandlers = {
 }
 Object.freeze(remoteExecutorHandlers);
 
-
 function getMachineURLBase(executionMachine) {
+    // RJR-type specific, we are sure the parameters contain at least the IP
     const port = executionMachine.parameters.port;
-    return `https://${executionMachine.hostname || executionMachine.ip_address}:${port}`;
+    return `https://${executionMachine.parameters.hostname || executionMachine.parameters.ip_address}:${port}`;
 }
 
 async function handleRJRRun(executionMachine, runId, jobId, spec) {

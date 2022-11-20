@@ -88,13 +88,13 @@ function getExecutorCertKey(executorId) {
  * 
  * @returns {Promise<string>} hexadexcimal serial number of the certificate
 */
-async function createRemoteExecutorCertificate(executor) {
+async function createRemoteExecutorCertificate(executor, ip, hostname) {
     if (fs.existsSync(getExecutorCertPath(executor.id)) || fs.existsSync(getExecutorKeyPath(executor.id))) {
         throw new Error(`Executor ${executor.name} credentials already exist`);
     }
     try {
-        const dnsName = typeof executor.hostname === 'string' && executor.hostname.trim() !== '' ? executor.hostname.trim() : null;
-        const command = `cd ${EXEC_ROOT} && ./remote_executor_cert_gen.sh ${executor.ip_address} ${getExecutorFilePrefix(executor.id)}${dnsName === null ? '' : (' ' + dnsName)}`;
+        const dnsName = typeof hostname === 'string' && hostname.trim() !== '' ? hostname.trim() : null;
+        const command = `cd ${EXEC_ROOT} && ./remote_executor_cert_gen.sh ${ip} ${getExecutorFilePrefix(executor.id)}${dnsName === null ? '' : (' ' + dnsName)}`;
         log.verbose(LOG_ID, `Creating executor certificate with ${command}`);
         await exec(command);
 

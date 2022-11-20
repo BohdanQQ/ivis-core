@@ -8,7 +8,7 @@ const interoperableErrors = require('../../shared/interoperable-errors');
 const namespaceHelpers = require('../lib/namespace-helpers');
 const shares = require('./shares');
 const { MachineTypes, MachineTypeParams, ExecutorStatus, ExecutorStateDefaults } = require('../../shared/remote-run');
-const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'hostname', 'ip_address', 'namespace', 'status']);
+const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'namespace', 'status']);
 const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespace']);
 const remoteCert = require('../lib/remote-certificates');
 const log = require('../lib/log');
@@ -55,13 +55,38 @@ async function logErrorToExecutor(executorId, precedingMessage, error) {
     log.error(LOG_ID, error.stack);
     await appendToLogById(executorId, errMsg);
 }
+
+async function generateCertificates(executor, ip, hostname) {
+    const certHexSerial = await remoteCert.createRemoteExecutorCertificate(executor, ip, hostname);
+    if (certHexSerial === null) {
+        throw new Error("Certificate creation failed");
+    }
+
+    const certDecSerialString = BigInt(`0x${certHexSerial}`).toString();
+    await tx(EXEC_TABLE).update({ 'cert_serial': certDecSerialString }).where('id', executor.id);
+}
+
+async function updateExecStatus(execId, status) {
+    return await tx(EXEC_TABLE).update({ 'status': status }).where('id', execId);
+}
+
 /** 
  * each call will be awaited => await only for reasonable time periods OR use the exexutor status to update the user 
  * the function is allowed and expected to throw exceptions if the executor is not ready when the function returns  
  */
 const executorInitializer = {
     [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => {
-        await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
+        try {
+            await generateCertificates(filteredEntity, filteredEntity.parameters.ip_address, filteredEntity.parameters.hostname);
+        }
+        catch (error) {
+            remoteCert.tryRemoveCertificate(filteredEntity.id);
+            await logErrorToExecutor(filteredEntity.id, "Error when creating certificates", error);
+            await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
+            return;
+        }
+
+        await updateExecStatus(filteredEntity.id, ExecutorStatus.READY);
     },
     [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
         (async () => {
@@ -75,17 +100,18 @@ const executorInitializer = {
                 }
                 let stateToSave = { ...state };
                 delete stateToSave.error;
-
                 await knex(EXEC_TABLE).update({ 'state': JSON.stringify(stateToSave) }).where('id', filteredEntity.id);
+
+                await generateCertificates(filteredEntity, state.masterInstanceIp, null);
             } catch (err) {
                 error = err;
             } finally {
                 if (error === null) {
-                    await knex(EXEC_TABLE).update({ 'status': ExecutorStatus.READY }).where('id', filteredEntity.id);
+                    await updateExecStatus(filteredEntity.id, ExecutorStatus.READY);
                     return;
                 }
                 await logErrorToExecutor(filteredEntity.id, "Cannot create OCI pool", error);
-                await knex(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL }).where('id', filteredEntity.id);
+                await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
             }
         })();
         // rough WIP outline
@@ -137,40 +163,14 @@ async function create(context, executor) {
         filteredEntity.id = id;
         filteredEntity.parameters = jsonParams;
         filteredEntity.state = ExecutorStateDefaults[executor.type];
-        // certs are created for every executor (except the local one)
-        // can also be adjusted to create only for those types that need it
-        // and created on executor type update
-
-        // TODO: move certificate creation responsibility to the executor initializer
-        // reason: initializer must have control over cert generation because of the certificate's 
-        // dependency on either the hostname or the IP address of the executor
-
-        // this also implies that the executor IP address is a executor-type related and thus cannot
-        // be simply required for each executor beforehand
-        // (see how OCI basic works - the master peer's public IP is needed but the peer's IP is known
-        // only after the peer has been created)
-        try {
-            const certHexSerial = await remoteCert.createRemoteExecutorCertificate(filteredEntity);
-            if (certHexSerial === null) {
-                throw new Error();
-            }
-
-            const certDecSerialString = BigInt(`0x${certHexSerial}`).toString();
-            await tx(EXEC_TABLE).update({ 'cert_serial': certDecSerialString }).where('id', id);
-        }
-        catch (error) {
-            remoteCert.tryRemoveCertificate(filteredEntity.id);
-            await logErrorToExecutor(filteredEntity.id, "Error when creating certificates", error);
-            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL }).where('id', filteredEntity.id);
-            throw new interoperableErrors.ServerValidationError("Error when creating certificates");
-        }
 
         try {
             await executorInitializer[filteredEntity.type](filteredEntity, tx);
         }
         catch (error) {
-            await logErrorToExecutor(filteredEntity.id, "Executor Initialized failed", error);
-            await tx(EXEC_TABLE).update({ 'status': ExecutorStatus.FAIL }).where('id', filteredEntity.id);
+            await logErrorToExecutor(filteredEntity.id, "Executor Initializer failed", error);
+            await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
+            throw new interoperableErrors.ServerValidationError("Error when initializing the executor");
         }
 
         return id;

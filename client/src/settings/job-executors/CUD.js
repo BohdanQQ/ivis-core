@@ -101,8 +101,6 @@ export default class CUD extends Component {
                 name: '',
                 description: '',
                 namespace: ivisConfig.user.namespace,
-                hostname: '',
-                ip_address: null,
                 type: CUD.NOTHING_SELECTED_TYPE
             });
         }
@@ -129,12 +127,6 @@ export default class CUD extends Component {
             state.setIn(['name', 'error'], t('Name must not be empty'));
         } else {
             state.setIn(['name', 'error'], null);
-        }
-
-        if (!state.getIn(['ip_address', 'value'])) {
-            state.setIn(['ip_address', 'error'], t('IP address must not be empty'));
-        } else {
-            state.setIn(['ip_address', 'error'], null);
         }
 
         const type = state.getIn(['type', 'value']);
@@ -180,8 +172,6 @@ export default class CUD extends Component {
             'name',
             'description',
             'type',
-            'hostname',
-            'ip_address',
             'parameters',
             'namespace',
         ]);
@@ -299,10 +289,6 @@ export default class CUD extends Component {
                     <InputField id="name" label={t('Name')} disabled={false}/>
                     <TextArea id="description" label={t('Description')} help={t('HTML is allowed')}
                               disabled={false}/>
-
-                
-                    <InputField id="hostname" label={t('Hostname')} disabled={isEdit}/>
-                    <InputField id="ip_address" label={t('IP Address')} disabled={isEdit}/>
 
                     <Dropdown id="type" label={t('Executor Type')} options={executorTypeOptions}  disabled={isEdit}/>
                     <NamespaceSelect/>
