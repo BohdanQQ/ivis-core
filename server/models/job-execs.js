@@ -98,14 +98,13 @@ const executorInitializer = {
                 const vcn = await getVcn();
                 log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
                 const state = await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters);
-                if (state.error !== null) {
-                    error = state.error;
-                }
                 let stateToSave = { ...state };
                 delete stateToSave.error;
                 await knex(EXEC_TABLE).update({ 'state': JSON.stringify(stateToSave) }).where('id', filteredEntity.id);
-
-                await generateCertificates(filteredEntity, state.masterInstanceIp, null);
+                if (state.error !== null) {
+                    throw state.error;
+                }
+                await generateCertificates(filteredEntity, state.masterInstanceIp, null, knex);
             } catch (err) {
                 error = err;
             } finally {
@@ -114,6 +113,7 @@ const executorInitializer = {
                     return;
                 }
                 await logErrorToExecutor(filteredEntity.id, "Cannot create OCI pool", error);
+                log.error(error);
                 await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
             }
         })();
