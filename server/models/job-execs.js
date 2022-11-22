@@ -295,7 +295,7 @@ async function getAllCerts(context, id) {
 async function appendToLogById(id, toAppend) {
     return await knex.transaction(async tx => {
         const { log } = await getById(getAdminContext(), id, false);
-        await tx(EXEC_TABLE).update({ 'log': `${log}${toAppend}` }).where('id', id);
+        await tx(EXEC_TABLE).update({ 'log': `${log}\n${toAppend}` }).where('id', id);
     });
 }
 
