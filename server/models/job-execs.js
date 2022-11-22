@@ -56,7 +56,7 @@ async function logErrorToExecutor(executorId, precedingMessage, error) {
     await appendToLogById(executorId, errMsg);
 }
 
-async function generateCertificates(executor, ip, hostname) {
+async function generateCertificates(executor, ip, hostname, tx) {
     const certHexSerial = await remoteCert.createRemoteExecutorCertificate(executor, ip, hostname);
     if (certHexSerial === null) {
         throw new Error("Certificate creation failed");
@@ -66,7 +66,10 @@ async function generateCertificates(executor, ip, hostname) {
     await tx(EXEC_TABLE).update({ 'cert_serial': certDecSerialString }).where('id', executor.id);
 }
 
-async function updateExecStatus(execId, status) {
+async function updateExecStatus(execId, status, tx) {
+    if (!tx) {
+        tx = knex;
+    }
     return await tx(EXEC_TABLE).update({ 'status': status }).where('id', execId);
 }
 
@@ -77,16 +80,16 @@ async function updateExecStatus(execId, status) {
 const executorInitializer = {
     [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => {
         try {
-            await generateCertificates(filteredEntity, filteredEntity.parameters.ip_address, filteredEntity.parameters.hostname);
+            await generateCertificates(filteredEntity, filteredEntity.parameters.ip_address, filteredEntity.parameters.hostname, tx);
         }
         catch (error) {
             remoteCert.tryRemoveCertificate(filteredEntity.id);
             await logErrorToExecutor(filteredEntity.id, "Error when creating certificates", error);
-            await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
+            await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL, tx);
             return;
         }
 
-        await updateExecStatus(filteredEntity.id, ExecutorStatus.READY);
+        await updateExecStatus(filteredEntity.id, ExecutorStatus.READY, tx);
     },
     [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
         (async () => {
