@@ -1,6 +1,3 @@
-
-const { MachineTypes } = require("../../../../../shared/remote-run");
-const executors = require('../../../../models/job-execs');
 const {
     createNewPoolParameters,
     registerPoolRemoval,
@@ -15,7 +12,7 @@ const {
 } = require('./clients');
 
 const log = require('../../../log');
-const { getAuthorizedKeyFormat } = require("../../../instance-ssh");
+const { getPublicSSHKey, executeCommand, canMakeSSHConnectionTo } = require("../../../instance-ssh");
 const knex = require("../../../knex");
 const LOG_ID = 'ocibasic-pool-creator';
 
@@ -104,7 +101,7 @@ async function createInstance(executorId, instanceIndex, subnetId, params) {
             params.shape,
             instanceName,
             subnetId,
-            getAuthorizedKeyFormat('core@IVIS'),
+            getPublicSSHKey(),
             params
         )
     };
@@ -147,9 +144,139 @@ async function initializePoolManager() {
 }
 
 async function initializePoolPeer() {
-
 }
 
+async function fallthroughIfError({ error, result }, promiseGenerator) {
+    // TODO check this is executed
+    if (error) {
+        return {
+            error,
+            result: null,
+        };
+    }
+    return await promiseGenerator(result);
+}
+
+/**
+ * 
+ * @param {Number} execId 
+ * @param {Number} peerIndex 
+ * @param {String} subnetId 
+ * @param {Object} params 
+* @returns { { error: String | null, result: String | null } }
+ */
+async function createPoolPeer(execId, peerIndex, subnetId, params) {
+    try {
+        return { error: null, result: await createInstance(execId, peerIndex, subnetId, params) };
+    }
+    catch (err) {
+        return { error: err, result: null };
+    }
+}
+
+/**
+ * 
+ * @param {Number} amount 
+ * @param {Number} execId 
+ * @param {String} subnetId 
+ * @param {Object} params 
+ * @returns {[String]}
+ */
+async function createPoolPeers(amount, execId, subnetId, params) {
+    if (amount < 1 || amount > 254) {
+        throw new Error(`invalid amount requested: ${amount}`);
+    }
+    const peerIndicies = new Array(amount).fill(0).map((_, i) => i);
+    let createdInstanceIds = [];
+    const peerPromises = peerIndicies.map((peerIdx) =>
+        createPoolPeer(execId, peerIdx, subnetId, params)
+            // using fallthrough here because I want all the promises to resolve / wait for the peer machine to be created
+            .then((res) => fallthroughIfError(res, (instanceId) => {
+                createdInstanceIds.push(instanceId);
+            })));
+
+    log.info(LOG_ID, "Waiting for all peer machines to be created");
+    const peerCreationResults = await Promise.all(peerPromises);
+    if (createdInstanceIds.length !== amount) {
+        log.error(LOG_ID, `Length ${createdInstanceIds.length} not matching pool size ${amount}`);
+        // TODO? destroyAllOkPeers
+        const firstError = peerCreationResults.filter((result) => result.error)[0].error ||
+            new Error("At least one pool peer was not created yet no error was found!");
+        throw firstError;
+    }
+    log.info(LOG_ID, "Instance IDs of created peers: ", createdInstanceIds);
+    return createdInstanceIds;
+}
+
+async function waitForSSHConnection(host, port, user, attemptCooldownSecs, timeoutSecs, maxRetryCount) {
+    return new Promise(async (resolve, reject) => {
+        let stop = false;
+        let timeout = setTimeout(() => {
+            stop = true;
+            reject(new Error(`SSH connection to ${host} could not be estabilished in the specified time (${timeoutSecs}s)`));
+        }, timeoutSecs * 1000);
+
+        let retryCount = 0;
+        while (!stop && retryCount <= maxRetryCount) {
+            log.verbose(LOG_ID, `SSH waiter retry ${retryCount}`);
+            if (await canMakeSSHConnectionTo(host, port, user)) {
+                log.verbose(LOG_ID, `SSH waiter SUCCESS ${retryCount}`);
+                clearTimeout(timeout);
+                resolve();
+                return;
+            }
+            // sleep
+            await new Promise((resolveTimeout) => setTimeout(resolveTimeout, attemptCooldownSecs * 1000));
+            retryCount = retryCount + 1;
+        }
+        reject(new Error(`SSH connection to ${host} could not be estabilished after the specified retries (${maxRetryCount}, cooldown ${attemptCooldownSecs})`));
+    });
+}
+
+function getRJRInstallationCommands() {
+    // TODO
+    return ['echo hello, RJR > ./hello.txt'];
+}
+
+function getPSInstallationCommands() {
+    // TODO
+    return ['echo hello, PS > ./hello2.txt'];
+}
+
+async function runCommandsOnPeers(instanceIds, executorId, commands) {
+    const user = 'opc';
+    // TODO extract port from global state (creates securityLists)
+    const sshPort = 22;
+
+    try {
+        const installationPromises = instanceIds.map(async (id) => {
+            const ip = (await getInstanceVnic(id)).publicIp;
+            await waitForSSHConnection(ip, sshPort, user, 10, 120, 30);
+            for (const command of commands) {
+                log.verbose(LOG_ID, `executing: ${command}`);
+                await executeCommand(command, ip, sshPort, user);
+            }
+        });
+        await Promise.all(installationPromises);
+    }
+    catch (error) {
+        log.error(LOG_ID, error);
+        // TODO destroyAllOkPeers
+        // handle command execution error
+        if (error.stdout) {
+            log.error(LOG_ID, `STDOUT of one of the peers:\n${error.stdout.join('\n')}`);
+        }
+        if (error.stderr) {
+            log.error(LOG_ID, `STDERR of one of the peers:\n${error.stderr.join('\n')}`);
+        }
+        if ((error.stdout || error.stderr) && error.error) {
+            throw error;
+        }
+
+        // handle any other error
+        throw error;
+    }
+}
 
 async function shutdownSubnet() {
 
@@ -159,9 +286,18 @@ async function shutdownInstance() {
 
 }
 
+function convertParams(params) {
+    let retval = {
+        ...params
+    };
+    // TODO: check correctness of the values
+    retval.size = Number(params.size);
+    retval.shapeConfigCPU = Number(params.shapeConfigCPU);
+    retval.shapeConfigRAM = Number(params.shapeConfigRAM);
+    return retval;
+}
+
 // OCI Homogenous pool:
-// state: { subnetId, subnetMask, masterInstanceId, masterInstanceIp, masterInstanceSubnetIp, poolInstanceIds }
-// params { size, shape, shapeConfigCPU, shapeConfigRAM }
 // TODO: mutex all 3 fns
 async function createOCIBasicPool(executorId, params) {
     let retVal = {
@@ -173,17 +309,34 @@ async function createOCIBasicPool(executorId, params) {
         poolInstanceIds: [],
         error: null
     };
+    params = convertParams(params);
     try {
         const executorGlobalState = await getGlobalStateForOCIExecType(knex);
-        const poolParams = await createNewPoolParameters();
-        retVal.subnetMask = poolParams.subnetMask;
-        retVal.subnetId = await createSubnet(executorId, poolParams.subnetMask, executorGlobalState.vcn, executorGlobalState.securityList);
-        retVal.masterInstanceId = await createInstance(executorId, 0, retVal.subnetId, params);
+        const {
+            subnetMask
+        } = await createNewPoolParameters();
+        retVal.subnetMask = subnetMask;
+        retVal.subnetId = await createSubnet(executorId, subnetMask, executorGlobalState.vcn, executorGlobalState.securityList);
+
+        retVal.poolInstanceIds = await createPoolPeers(params.size, executorId, retVal.subnetId, params);
+
+        log.info(LOG_ID, "Obtaining Master Peer information");
+        retVal.masterInstanceId = retVal.poolInstanceIds[0];
         const vnic = await getInstanceVnic(retVal.masterInstanceId);
         retVal.masterInstanceIp = vnic.publicIp;
         retVal.masterInstanceSubnetIp = vnic.privateIp;
-        retVal.poolInstanceIds = [retVal.masterInstanceId];
+
+        log.info(LOG_ID, "Installing required software on pool peers");
+        await runCommandsOnPeers(retVal.poolInstanceIds, executorId, getRJRInstallationCommands());
+        log.info(LOG_ID, "Installing required software on master peer");
+        await runCommandsOnPeers([retVal.masterInstanceId], executorId, getPSInstallationCommands());
     } catch (error) {
+        // TODO remove subnet and after that:
+        // if (retVal.subnetMask) {
+        //     await registerPoolRemoval({
+        //         subnetMask: retVal.subnetMask
+        //     });
+        // }
         retVal.error = error;
     }
 
