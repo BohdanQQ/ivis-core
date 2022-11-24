@@ -11,12 +11,13 @@ const GLOBAL_EXEC_STATE_TABLE = 'global_executor_type_state';
 const VCN_CIDR_BLOCK = '11.0.0.0/16';
 const RESERVED_VCN_NAME = 'IVIS-POOL-VCN';
 
+/** Checks VCN state with the OCI servers, waits for resoltution if needed */
 async function isSavedVcnOk(vcnId) {
-    const response = await virtualNetworkClient.getVcn({vcnId});
+    const response = await virtualNetworkClient.getVcn({ vcnId });
     if (response.vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminated || response.vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminating) {
         return false;
     } else {
-        await virtualNetworkWaiter.forVcn( { vcnId },
+        await virtualNetworkWaiter.forVcn({ vcnId },
             core.models.Vcn.LifecycleState.Available
         );
         return true;
@@ -32,8 +33,9 @@ async function createVcn() {
         }
     };
 
-    log.verbose(LOG_ID, 'create VCN: ',vcnRequest);
+    log.verbose(LOG_ID, 'create VCN: ', vcnRequest.createVcnDetails);
     let vcnResponse = await virtualNetworkClient.createVcn(vcnRequest);
+    log.info(LOG_ID, 'created VCN: ', vcnResponse.vcn.id);
 
     const vcnWaitRequest = {
         vcnId: vcnResponse.vcn.id
@@ -50,9 +52,8 @@ async function createGateway(vcnId) {
     const gwDetails = { vcnId, compartmentId: COMPARTMENT_ID, isEnabled: true };
     log.verbose(LOG_ID, `create gateway: ${gwDetails}`);
     const createGatewayResponse = await virtualNetworkClient.createInternetGateway(
-        { createInternetGatewayDetails: gwDetails }
-    );
-
+        { createInternetGatewayDetails: gwDetails });
+    log.info(LOG_ID, `created gateway: ${createGatewayResponse.internetGateway.id}`);
     const gatewayResponse = await virtualNetworkWaiter.forInternetGateway({
         igId: createGatewayResponse.internetGateway.id
     }, core.models.InternetGateway.LifecycleState.Available);
@@ -69,7 +70,7 @@ async function addGatewayToVcnRouteTable(vcnId, gatewayId) {
 
     if (!tableId) { throw new Error(`No Route Table found for table in compartment ${COMPARTMENT_ID} under VCN ${vcnId}`); }
 
-    log.verbose(LOG_ID, `updating route table rules`);
+    log.info(LOG_ID, `updating route table rules for table ${tableId}`);
     const tableUpdateResponse = await virtualNetworkClient.updateRouteTable({
         rtId: tableId,
         updateRouteTableDetails: {
@@ -113,6 +114,7 @@ async function createSecurityList(vcnId) {
             ingressSecurityRules: inRules,
         }
     });
+    log.info(LOG_ID, 'created security list ', listResponse.securityList.id);
     const list = await virtualNetworkWaiter.forSecurityList(
         { securityListId: listResponse.securityList.id },
         core.models.SecurityList.LifecycleState.Available);
@@ -120,7 +122,10 @@ async function createSecurityList(vcnId) {
 }
 
 /**
- * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success   
+ * Sets up OCI Network Resources needed to allow pool creation using OCI
+ * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} 
+ * OCIDs of the corresponding components, null for each component not created, err is null on success
+ * or contains a throwable instance of an Error   
  */
 async function setupOCINetwork() {
     let retVal = {
@@ -137,6 +142,7 @@ async function setupOCINetwork() {
         retVal.gateway = await createGateway(retVal.vcn);
         retVal.routeTable = await addGatewayToVcnRouteTable(retVal.vcn, retVal.gateway);
     } catch (err) {
+        // TODO remove all created resources
         retVal.err = err;
     } finally {
         return retVal;
@@ -145,7 +151,7 @@ async function setupOCINetwork() {
 
 /**
  * @param {string} vcnId
- * @returns { {vcn: string, routeTable: string, gateway: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success   
+ * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success   
  */
 async function tryRecoverOCINetwork(vcnId) {
     log.info(LOG_ID, 'trying to recover network configuration');
@@ -153,12 +159,8 @@ async function tryRecoverOCINetwork(vcnId) {
     return { vcn: vcnId, routeTable: null, gateway: null, err: new Error("TODO, unimplemented") };
 }
 
-let setupTask = null;
-/**
- * @returns { {vcn: string, routeTable: string, gateway: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success   
- */
-async function setupVcnIfNeeded() {
-    let vcnId = null;
+/** @returns {string} VCN OCID or null if not found */
+async function tryToDiscoverVCNId() {
     for await (const vcn of
         virtualNetworkClient.listAllVcns({
             compartmentId: COMPARTMENT_ID
@@ -166,12 +168,12 @@ async function setupVcnIfNeeded() {
         if (vcn.displayName === RESERVED_VCN_NAME) {
             log.verbose(LOG_ID, `found VCN by name (looking for: ${RESERVED_VCN_NAME})`);
             if (vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminating || vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminated) {
-                log.verbose(LOG_ID, `skipped because VNC with id ${vcn.id} is terminat(ing/ed)`);
+                log.verbose(LOG_ID, `VNC with id ${vcn.id} was skipped because it is terminat(ing/ed)`);
                 continue;
             }
             if (vcn.lifecycleState === core.models.Vcn.LifecycleState.Available) {
                 log.verbose(LOG_ID, `VNC with id ${vcn.id} is available`);
-                vcnId = vcn.id;
+                return vcn.id;
             }
             else {
                 log.verbose(LOG_ID, `VNC with id ${vcn.id} is not terminating but also not available -> waiting for available status`);
@@ -182,10 +184,19 @@ async function setupVcnIfNeeded() {
                     core.models.Vcn.LifecycleState.Available
                 );
                 log.verbose(LOG_ID, `VCN status wait complete`);
-                vcnId = vcnResponse.vcn.id;
+                return vcnResponse.vcn.id;
             }
         }
     }
+    return null;
+}
+
+let setupTask = null;
+/**
+ * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success   
+ */
+async function setupVcnIfNeeded() {
+    let vcnId = await tryToDiscoverVCNId();
 
     let state = await getGlobalStateForOCIExecType(knex);
     if (setupTask === null) {
@@ -200,10 +211,11 @@ async function setupVcnIfNeeded() {
         log.info(LOG_ID, `Starting VCN setup task`);
         setupTask = vcnExists ? tryRecoverOCINetwork(vcnId) : setupOCINetwork();
         const result = await setupTask;
-        let diff = {...result};
+        setupTask = undefined;
+
+        let diff = { ...result };
         delete diff.err;
         await updateStateWithDiff(diff);
-        setupTask = undefined;
         return result;
     }
     else if (setupTask === undefined) {
@@ -226,32 +238,18 @@ async function getVcn() {
                 return state.vcn;
             } // otherwise reset the state vcn and recreate the vcn
             else {
-                await updateStateWithDiff({vcn: null});
+                await updateStateWithDiff({ vcn: null });
             }
         } catch (err) {
             log.error(LOG_ID, "saved VCN check failed", err);
-            await updateStateWithDiff({vcn: null});
+            await updateStateWithDiff({ vcn: null });
         }
     }
     let vcnCreationResult = await setupVcnIfNeeded();
-    if (!vcnCreationResult.vcn || !vcnCreationResult.routeTable || !vcnCreationResult.gateway) {
+    if (!vcnCreationResult.vcn || !vcnCreationResult.routeTable || !vcnCreationResult.gateway || !vcnCreationResult.securityList || vcnCreationResult.err) {
         throw vcnCreationResult.err;
     }
     return vcnCreationResult.vcn;
-}
-
-function getNextAvailableIpRange(ipsUsed) {
-    let expectedIndex = 1;
-    for (const { index } of ipsUsed) {
-        if (index !== expectedIndex) {
-            return { index: expectedIndex };
-        }
-        expectedIndex++;
-    }
-    if (expectedIndex === 255) {
-        return null;
-    }
-    return { index: expectedIndex };
 }
 
 /**
@@ -265,16 +263,10 @@ async function getGlobalStateForOCIExecType(tx) {
     return JSON.parse(json);
 }
 
-async function getIPsUsed() {
-    return await knex.transaction(async tx => {
-        const state = await getGlobalStateForOCIExecType(tx);
-        let ipsUsed = state.ipsUsed || [];
-        ipsUsed.sort((a, b) => a.index - b.index);
-        return ipsUsed;
-    });
-}
-
 function getStateForDb(state) {
+    if (!state) {
+        state = {}
+    }
     if (!state.ipsUsed) {
         state.ipsUsed = [];
     }
@@ -302,14 +294,47 @@ async function updateState(tx, state) {
 async function updateStateWithDiff(diffObj) {
     return await knex.transaction(async tx => {
         let state = await getGlobalStateForOCIExecType(tx);
-        log.verbose(LOG_ID, "state update from ", state);
+        log.silly(LOG_ID, "state update from ", state);
         for (const key in diffObj) {
             if (Object.hasOwnProperty.call(diffObj, key)) {
                 state[key] = diffObj[key];
             }
         }
-        log.verbose(LOG_ID, "state update to ", state);
+        log.silly(LOG_ID, "state update to ", state);
         await updateState(tx, state);
+    });
+}
+
+// a set of functions related to incrementing the pool parameters
+// for each pool that is created
+// so far, the pool parameters only consist of the subnet mask
+
+
+// currently the subnet masks are incremented only on a single-index basis
+// which covers only 254 subnets (1-254)
+// TODO: add other indicies (in accordance with VCN limits)
+
+function getNextAvailableIpRange(ipsUsed) {
+    let expectedIndex = 1;
+    for (const { index } of ipsUsed) {
+        if (index !== expectedIndex) {
+            return { index: expectedIndex };
+        }
+        expectedIndex++;
+    }
+    if (expectedIndex === 255) {
+        return null;
+    }
+    return { index: expectedIndex };
+}
+
+/** returns sorted (ascending) IP address allocation */
+async function getIPsUsed() {
+    return await knex.transaction(async tx => {
+        const state = await getGlobalStateForOCIExecType(tx);
+        let ipsUsed = state.ipsUsed || [];
+        ipsUsed.sort((a, b) => a.index - b.index);
+        return ipsUsed;
     });
 }
 
@@ -319,6 +344,10 @@ async function storeIPsUsed(ipsUsed) {
     });
 }
 
+/**
+ * Allocates from the "global" resources for use in a pool
+ * @returns {Promise<{subnetMask: string}>} 
+ */
 async function createNewPoolParameters() {
     checkOCICanBeUsed();
     let ipsUsed = await getIPsUsed();
@@ -335,6 +364,10 @@ async function createNewPoolParameters() {
     };
 }
 
+/**
+ * Frees up any allocation of the "global" resources for use in other pools 
+ * @param {{subnetMask: string}} poolParameters 
+ */
 async function registerPoolRemoval(poolParameters) {
     checkOCICanBeUsed();
     if (!poolParameters || !poolParameters.subnetMask) {
