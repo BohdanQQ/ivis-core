@@ -17,7 +17,8 @@ const knex = require("../../../knex");
 const LOG_ID = 'ocibasic-pool-creator';
 
 const POOL_PEER_OS = 'Oracle Linux';
-function getSubnetDisplayName(executorId) { return `IVIS-executor-${executorId}-subnet` };
+function getSubnetDisplayName(executorId) { return `IVIS-executor-${executorId}-subnet` }
+function getInstanceDisplayName(executorId, instanceIndex) { return `IVIS-PEER-ex${executorId}-${instanceIndex}` }
 
 async function createSubnet(executorId, subnetMask, vcnId, securityListId) {
 
@@ -94,7 +95,7 @@ async function getInstanceRequestDetails(shapeName, instanceName, subnetId, auth
 }
 
 async function createInstance(executorId, instanceIndex, subnetId, params) {
-    const instanceName = `IVIS-PEER-ex${executorId}-${instanceIndex}`;
+    const instanceName = getInstanceDisplayName(executorId, instanceIndex);
     log.info(LOG_ID, `Creating instance ${instanceName}`);
     const instanceRequest = {
         launchInstanceDetails: await getInstanceRequestDetails(
@@ -127,24 +128,13 @@ async function getInstanceVnic(instanceId) {
         compartmentId: COMPARTMENT_ID,
         instanceId
     });
-    if (attachments.items.lengh === 0) {
+    if (attachments.items.length === 0) {
         return null;
     }
 
+    // each instance gets its vnic, this is OK
     const vnicId = attachments.items[0].vnicId;
     return (await virtualNetworkClient.getVnic({ vnicId })).vnic;
-}
-
-async function waitForInstanceSSH() {
-
-}
-
-async function initializePoolManager() {
-    //await initializePoolPeer();
-
-}
-
-async function initializePoolPeer() {
 }
 
 async function fallthroughIfError({ error, result }, promiseGenerator) {
@@ -184,7 +174,7 @@ async function createPoolPeer(execId, peerIndex, subnetId, params) {
  * @returns {[String]}
  */
 async function createPoolPeers(amount, execId, subnetId, params) {
-    if (!(amount instanceof Number) || amount < 1 || amount > 254) {
+    if (typeof amount !== 'number' || amount < 1 || amount > 254) {
         throw new Error(`invalid amount requested: ${amount}`);
     }
     const peerIndicies = new Array(amount).fill(0).map((_, i) => i);
@@ -255,26 +245,28 @@ async function runCommandsOnPeers(instanceIds, executorId, commands) {
             await waitForSSHConnection(ip, sshPort, user, 10, 120, 30);
             for (const command of commands) {
                 log.verbose(LOG_ID, `executing: ${command}`);
-                await executeCommand(command, ip, sshPort, user);
+                const executionResult = await executeCommand(command, ip, sshPort, user);
+                if (executionResult.error) {
+                    throw executionResult;
+                }
             }
         });
         await Promise.all(installationPromises);
     }
     catch (error) {
-        log.error(LOG_ID, error);
         // TODO destroyAllOkPeers
         // handle command execution error
         if (error.stdout) {
-            log.error(LOG_ID, `STDOUT of one of the peers:\n${error.stdout.join('\n')}`);
+            log.error(LOG_ID, `ExecutorID: ${executorId}:\nSTDOUT of one of the peers:\n${error.stdout.join('\n')}`);
         }
         if (error.stderr) {
-            log.error(LOG_ID, `STDERR of one of the peers:\n${error.stderr.join('\n')}`);
+            log.error(LOG_ID, `ExecutorID: ${executorId}:\nSTDERR of one of the peers:\n${error.stderr.join('\n')}`);
         }
         if ((error.stdout || error.stderr) && error.error) {
-            throw error;
+            throw error.error;
         }
 
-        // handle any other error
+        // propagate any other error
         throw error;
     }
 }
@@ -291,7 +283,6 @@ function convertParams(params) {
     let retval = {
         ...params
     };
-    retval.size = Number(params.size);
     for (const paramName of ["size", "shapeConfigCPU", "shapeConfigRAM"]) {
         retval[paramName] = Number(params[paramName]);
         if (retval.size <= 0 || Number.isNaN(retval.size)) {
@@ -302,7 +293,7 @@ function convertParams(params) {
 }
 
 // OCI Homogenous pool:
-// TODO: mutex all 3 fns
+// TODO: mutex all 3 fns?
 async function createOCIBasicPool(executorId, params) {
     let retVal = {
         subnetId: null,
