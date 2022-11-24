@@ -184,7 +184,7 @@ async function createPoolPeer(execId, peerIndex, subnetId, params) {
  * @returns {[String]}
  */
 async function createPoolPeers(amount, execId, subnetId, params) {
-    if (amount < 1 || amount > 254) {
+    if (!(amount instanceof Number) || amount < 1 || amount > 254) {
         throw new Error(`invalid amount requested: ${amount}`);
     }
     const peerIndicies = new Array(amount).fill(0).map((_, i) => i);
@@ -291,10 +291,13 @@ function convertParams(params) {
     let retval = {
         ...params
     };
-    // TODO: check correctness of the values
     retval.size = Number(params.size);
-    retval.shapeConfigCPU = Number(params.shapeConfigCPU);
-    retval.shapeConfigRAM = Number(params.shapeConfigRAM);
+    for (const paramName of ["size", "shapeConfigCPU", "shapeConfigRAM"]) {
+        retval[paramName] = Number(params[paramName]);
+        if (retval.size <= 0 || Number.isNaN(retval.size)) {
+            throw new Error(`Pool parameter ${paramName} is of invalid value. (${retval})`);
+        }
+    }
     return retval;
 }
 
@@ -321,7 +324,10 @@ async function createOCIBasicPool(executorId, params) {
 
         retVal.poolInstanceIds = await createPoolPeers(params.size, executorId, retVal.subnetId, params);
 
-        log.info(LOG_ID, "Obtaining Master Peer information");
+        if (!(retVal.poolInstanceIds instanceof Array) || retVal.poolInstanceIds.length <= 0) {
+            log.error(LOG_ID, "Pool instance creation unexpectedly returned ", retval.poolInstanceIds);
+            throw new Error("No pool peers have been created! Cannot select Master Peer.");
+        }
         retVal.masterInstanceId = retVal.poolInstanceIds[0];
         log.info(LOG_ID, `Master Peer Selected: ${retVal.masterInstanceId}`);
         const vnic = await getInstanceVnic(retVal.masterInstanceId);
