@@ -34,7 +34,7 @@ async function createSubnet(executorId, subnetMask, vcnId, securityListId) {
     log.verbose(LOG_ID, 'subnet request', subnetRequest);
 
     const subnetResponse = await virtualNetworkClient.createSubnet(subnetRequest);
-
+    log.info(LOG_ID, `subnet ID created: ${subnetResponse.subnet.id}`);
     const subnetWaitRequest = {
         subnetId: subnetResponse.subnet.id
     };
@@ -108,6 +108,7 @@ async function createInstance(executorId, instanceIndex, subnetId, params) {
     log.verbose(LOG_ID, 'Instance parameters', instanceRequest);
 
     const instanceResponse = await computeClient.launchInstance(instanceRequest);
+    log.info(LOG_ID, `Created instance ${instanceResponse.instance.id}`);
 
     const instanceWaitRequest = {
         instanceId: instanceResponse.instance.id
@@ -322,13 +323,18 @@ async function createOCIBasicPool(executorId, params) {
 
         log.info(LOG_ID, "Obtaining Master Peer information");
         retVal.masterInstanceId = retVal.poolInstanceIds[0];
+        log.info(LOG_ID, `Master Peer Selected: ${retVal.masterInstanceId}`);
         const vnic = await getInstanceVnic(retVal.masterInstanceId);
         retVal.masterInstanceIp = vnic.publicIp;
         retVal.masterInstanceSubnetIp = vnic.privateIp;
+        log.info(LOG_ID, "Master Instance IPs", {
+            'public': retVal.masterInstanceIp,
+            'private': retVal.masterInstanceSubnetIp
+        });
 
         log.info(LOG_ID, "Installing required software on pool peers");
         await runCommandsOnPeers(retVal.poolInstanceIds, executorId, getRJRInstallationCommands());
-        log.info(LOG_ID, "Installing required software on master peer");
+        log.info(LOG_ID, "Installing additional software on master peer");
         await runCommandsOnPeers([retVal.masterInstanceId], executorId, getPSInstallationCommands());
     } catch (error) {
         // TODO remove subnet and after that:
@@ -341,7 +347,7 @@ async function createOCIBasicPool(executorId, params) {
     }
 
     if (retVal.error === null && (retVal.masterInstanceIp === null || retVal.masterInstanceSubnetIp === null)) {
-        retVal.error = new Error('MasterInstance(Subnet)IP not found');
+        retVal.error = new Error('MasterInstance (Subnet)IP not found');
     }
     return retVal;
 }
