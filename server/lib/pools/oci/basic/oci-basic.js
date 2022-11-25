@@ -14,6 +14,7 @@ const {
 const log = require('../../../log');
 const { getPublicSSHKey, executeCommand, canMakeSSHConnectionTo } = require("../../../instance-ssh");
 const knex = require("../../../knex");
+const { getRJRSetupCommands } = require('./rjr-setup');
 const LOG_ID = 'ocibasic-pool-creator';
 
 const POOL_PEER_OS = 'Oracle Linux';
@@ -224,9 +225,28 @@ async function waitForSSHConnection(host, port, user, attemptCooldownSecs, timeo
     });
 }
 
-function getRJRInstallationCommands() {
-    // TODO
-    return ['echo hello, RJR > ./hello.txt'];
+function getInstanceSetupCommands() {
+    return [
+        //'sudo yum update -y',
+        'sudo dnf install -y dnf-utils zip unzip curl git',
+        'sudo dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo',
+        'sudo dnf install -y docker-ce',
+        'sudo mkdir /etc/docker',
+        'sudo systemctl enable docker.service', // creates docker firewall config with a firewall-cmd zone
+        'sudo systemctl start docker.service',
+        'echo { \\\"iptables\\\" : false } | sudo tee /etc/docker/daemon.json', // disables iptables bypass, firewall-cmd zone remains
+        'sudo systemctl restart docker.service',
+        'sudo docker info',
+        'sudo curl -L https://github.com/docker/compose/releases/download/v2.12.2/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose',
+        'sudo chmod +x /usr/local/bin/docker-compose',
+        '/usr/local/bin/docker-compose  --version',
+    ];
+}
+
+function getRJRInstallationCommands(masterInstancePrivateIp, instancePrivateIp) {
+    let commands = getInstanceSetupCommands();
+    commands.push(...getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp));
+    return commands;
 }
 
 function getPSInstallationCommands() {
@@ -234,19 +254,40 @@ function getPSInstallationCommands() {
     return ['echo hello, PS > ./hello2.txt'];
 }
 
-async function runCommandsOnPeers(instanceIds, executorId, commands) {
+async function runCommandsOnPeers(instanceIds, executorId, commandGenerator) {
     const user = 'opc';
     // TODO extract port from global state (creates securityLists)
     const sshPort = 22;
 
     try {
         const installationPromises = instanceIds.map(async (id) => {
-            const ip = (await getInstanceVnic(id)).publicIp;
-            await waitForSSHConnection(ip, sshPort, user, 10, 120, 30);
+            const vnic = await getInstanceVnic(id);
+            await waitForSSHConnection(vnic.publicIp, sshPort, user, 10, 120, 30);
+            const commands = commandGenerator(vnic.privateIp);
             for (const command of commands) {
                 log.verbose(LOG_ID, `executing: ${command}`);
-                const executionResult = await executeCommand(command, ip, sshPort, user);
-                if (executionResult.error) {
+                let firstError = null;
+                const maxRetryCount = 3;
+                let retryNum = 0;
+                while (retryNum <= maxRetryCount) {
+                    const executionResult = await executeCommand(command, vnic.publicIp, sshPort, user);
+                    if (!executionResult.error) {
+                        break;
+                    }
+                    if (!firstError && executionResult.error) {
+                        firstError = executionResult;
+                    }
+                    retryNum = retryNum + 1;
+                    if (executionResult.error) {
+                        log.error(LOG_ID, `Command: ${command} failed with error:`, executionResult.error);
+                        log.error(LOG_ID, `STDOUT: ${executionResult.stdout}`);
+                        log.error(LOG_ID, `STDERR: ${executionResult.stderr}`);
+                        if (retryNum <= maxRetryCount) {
+                            log.error(LOG_ID, "Retrying the command...");
+                        }
+                    }
+                }
+                if (firstError) {
                     throw executionResult;
                 }
             }
@@ -330,9 +371,9 @@ async function createOCIBasicPool(executorId, params) {
         });
 
         log.info(LOG_ID, "Installing required software on pool peers");
-        await runCommandsOnPeers(retVal.poolInstanceIds, executorId, getRJRInstallationCommands());
+        await runCommandsOnPeers(retVal.poolInstanceIds, executorId, (instanceIp) => getRJRInstallationCommands(retVal.masterInstanceSubnetIp, instanceIp));
         log.info(LOG_ID, "Installing additional software on master peer");
-        await runCommandsOnPeers([retVal.masterInstanceId], executorId, getPSInstallationCommands());
+        await runCommandsOnPeers([retVal.masterInstanceId], executorId, () => getPSInstallationCommands());
     } catch (error) {
         // TODO remove subnet and after that:
         // if (retVal.subnetMask) {
