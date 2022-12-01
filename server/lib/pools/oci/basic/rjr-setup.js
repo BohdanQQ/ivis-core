@@ -1,5 +1,6 @@
-const RJR_LISTEN_PORT = 9443;
-const RJR_PUBLIC_PORT = 9090;
+const RJR_LISTEN_PORT = 80;
+const RJR_PUBLIC_PORT = 80;
+
 const RJRComposeFile = `version: '3'
 services:
   rjr-proxy:
@@ -28,18 +29,22 @@ services:
       - ./config/default.yml:/opt/ivis-remote/config/default.yml
       # - ./cert:/opt/ivis-remote/cert # not used
 `;
+// all three should be forwarded with XXXX:XXXX on RPS
+const RPS_PEER_PORT_TRUSTED = 444;
+const RPS_PEER_PORT_SBOX = 445;
+const RPS_PEER_PORT_ES = 446;
 
 const getRJRConfigFile = (masterPeerIp) => `# all paths are relative to the project root
 ivisCore:
   trustedIPOrName: ${masterPeerIp}
-  trustedAuthPort: 443
+  trustedAuthPort: ${RPS_PEER_PORT_TRUSTED}
   
   sandboxIPOrName: ${masterPeerIp}
-  sandboxPort: 444 # MUST BE DIFFERENT (name is not different!)
+  sandboxPort: ${RPS_PEER_PORT_SBOX} # MUST BE DIFFERENT (name is not different!)
 
   es:
     host: ${masterPeerIp}
-    port: 8446
+    port: ${RPS_PEER_PORT_ES}
   # use local CA when PERFORMING REQUESTS to accept a locally-issued certificate
   # e.g. when not running on the internet...
   # Set to false if the IVIS-core server certificate may be verified normally 
@@ -99,10 +104,10 @@ server {
    location / {
         proxy_pass http://rjr:8080;
 
-        proxy_set_header        Host $host;
-        proxy_set_header        X-Real-IP $remote_addr;
-        proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header        X-Forwarded-Proto $scheme;
+        proxy_set_header        Host ${'$host'};
+        proxy_set_header        X-Real-IP ${'$remote_addr'};
+        proxy_set_header        X-Forwarded-For ${'$proxy_add_x_forwarded_for'};
+        proxy_set_header        X-Forwarded-Proto ${'$scheme'};
 }
 }
 }
@@ -111,14 +116,13 @@ server {
 
 function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
     const repo = 'https://github.com/BohdanQQ/ivis-remote-job-runner.git';
-    const commit = 'e9803c10344c1d443928a8d5c10043a21ee1c3d5';
+    const commit = 'e710f800bf7b9fe3c7e1c2b671bbd09466b92ffe';
     const composeContents = RJRComposeFile;
     const nginxConfigContents = getRJRNginxConfig(instancePrivateIp);
     const rjrConfigContents = getRJRConfigFile(masterInstancePrivateIp);
     return [
-        // allow only the master instance to connect to the docker network (where RJR will be responding)
-        `sudo firewall-cmd --zone=docker --add-source=${masterInstancePrivateIp}/32 --permanent`,
-        'sudo firewall-cmd --complete-reload',
+        // allow only the master instance to connect to the docker RJR_LISTEN_PORT
+        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RJR_LISTEN_PORT} ! -s ${masterInstancePrivateIp} -j DROP`,
         `git clone ${repo}`,
         `cd ./ivis-remote-job-runner && git checkout ${commit}`,
         `cd ./ivis-remote-job-runner && cat > ./config/default.yml << HEREDOC_EOF\n${rjrConfigContents}\nHEREDOC_EOF`,
@@ -127,16 +131,22 @@ function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
         `cd ./ivis-remote-job-runner && sudo /usr/local/bin/docker-compose up -d --build`
     ];
 }
-
-const RPS_LISTEN_PORT = 443;
-
-function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInstancePublicIp) {
-    const nonRPSPrivateIps = peerPrivateIps.filter((ip) => ip !== masterInstancePrivateIp);
-    // add other pool peers to the docker whitelist
-    let commands = nonRPSPrivateIps.map((ip) => `sudo firewall-cmd --zone=docker --add-source=${ip}/32 --permanent`);
-    // open the public port to public
-    let otherCommands = [`sudo firewall-cmd --zone=public --add-port=${RPS_LISTEN_PORT}/tcp`];
-    return commands.push(...otherCommands);
+const RPS_PUBLIC_PORT = 10443; // must be forwarded with 10443:10443
+if ([RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED].indexOf(RPS_PUBLIC_PORT) !== -1) {
+    throw new Error("Port clash on master peer!");
+}
+if ([RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED].indexOf(RJR_PUBLIC_PORT) !== -1) {
+    throw new Error("Port clash on master peer!");
+}
+function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInstancePublicIp, subnetMask) {
+    return [
+        // make PEER ports PEER-only 
+        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RPS_PEER_PORT_ES} ! -s ${subnetMask} -j DROP`,
+        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RPS_PEER_PORT_SBOX} ! -s ${subnetMask} -j DROP`,
+        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RPS_PEER_PORT_TRUSTED} ! -s ${subnetMask} -j DROP`,
+        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RPS_PUBLIC_PORT} -j RETURN`, // make public port public (topmost rule)
+        'touch ./helloRPS.txt'
+    ];
 }
 
 module.exports = { getRJRSetupCommands }

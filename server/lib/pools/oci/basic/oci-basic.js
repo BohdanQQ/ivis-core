@@ -225,26 +225,24 @@ async function waitForSSHConnection(host, port, user, attemptCooldownSecs, timeo
     });
 }
 
-function getInstanceSetupCommands() {
+function getInstanceSetupCommands(subnetMask) {
     return [
         //'sudo yum update -y',
         'sudo dnf install -y dnf-utils zip unzip curl git',
         'sudo dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo',
         'sudo dnf install -y docker-ce',
-        'sudo mkdir /etc/docker',
-        'sudo systemctl enable docker.service', // creates docker firewall config with a firewall-cmd zone
-        'sudo systemctl start docker.service',
-        'echo { \\\"iptables\\\" : false } | sudo tee /etc/docker/daemon.json', // disables iptables bypass, firewall-cmd zone remains
-        'sudo systemctl restart docker.service',
-        'sudo docker info',
+        'sudo systemctl stop firewalld && sudo systemctl disable firewalld',
+        'sudo yum install -y iptables-services && sudo systemctl enable iptables && sudo systemctl start iptables',
+        'sudo systemctl enable docker.service && sudo systemctl start docker.service && sudo docker info', // sets up docker iptables configuration
+        `sudo iptables -I DOCKER-USER -i ens3 ! -s ${subnetMask} -j DROP`, // for starters, allow only the subnet members to access the docker services
         'sudo curl -L https://github.com/docker/compose/releases/download/v2.12.2/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose',
         'sudo chmod +x /usr/local/bin/docker-compose',
         '/usr/local/bin/docker-compose  --version',
     ];
 }
 
-function getRJRInstallationCommands(masterInstancePrivateIp, instancePrivateIp) {
-    let commands = getInstanceSetupCommands();
+function getRJRInstallationCommands(masterInstancePrivateIp, instancePrivateIp, subnetMask) {
+    let commands = getInstanceSetupCommands(subnetMask);
     commands.push(...getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp));
     return commands;
 }
@@ -371,7 +369,7 @@ async function createOCIBasicPool(executorId, params) {
         });
 
         log.info(LOG_ID, "Installing required software on pool peers");
-        await runCommandsOnPeers(retVal.poolInstanceIds, executorId, (instanceIp) => getRJRInstallationCommands(retVal.masterInstanceSubnetIp, instanceIp));
+        await runCommandsOnPeers(retVal.poolInstanceIds, executorId, (instanceIp) => getRJRInstallationCommands(retVal.masterInstanceSubnetIp, instanceIp, retVal.subnetMask));
         log.info(LOG_ID, "Installing additional software on master peer");
         await runCommandsOnPeers([retVal.masterInstanceId], executorId, () => getPSInstallationCommands());
     } catch (error) {
