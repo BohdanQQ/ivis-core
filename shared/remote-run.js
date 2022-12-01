@@ -17,7 +17,8 @@ Object.freeze(RemoteRunState);
 const MachineTypes = {
     LOCAL: 'local',
     REMOTE_RUNNER_AGENT: 'agent',
-    OCI_BASIC: 'oci_basic'
+    OCI_BASIC: 'oci_basic',
+    REMOTE_POOL: 'remote_pool'
 };
 Object.freeze(MachineTypes);
 
@@ -66,7 +67,25 @@ const MachineTypeParams = {
         'help': 'GBs of RAM (used if shape is flexible)',
         'type': 'integer',
     },
-    ]
+    ],
+    [MachineTypes.REMOTE_POOL]: [{
+        'id': 'ip_address',
+        'label': 'IPv4 Address',
+        'help': 'must be present, does not need to be valid if hostname is valid',
+        'type': 'string',
+    },
+    {
+        'id': 'hostname',
+        'label': 'Hostname',
+        'help': 'optional, prioritized over IP when present',
+        'type': 'string',
+    },
+    {
+        'id': 'port',
+        'label': 'Port',
+        'help': 'the port the Remote Job Runner is available on',
+        'type': 'integer',
+    }]
 }
 Object.freeze(MachineTypeParams);
 
@@ -80,6 +99,7 @@ Object.freeze(ExecutorStatus);
 const GlobalExecutorStateDefaults = {
     [MachineTypes.LOCAL]: {},
     [MachineTypes.REMOTE_RUNNER_AGENT]: {},
+    [MachineTypes.REMOTE_POOL]: {},
     [MachineTypes.OCI_BASIC]: {
         'ipsUsed': [],
         'vcn': null,
@@ -93,6 +113,7 @@ Object.freeze(GlobalExecutorStateDefaults);
 const ExecutorStateDefaults = {
     [MachineTypes.LOCAL]: {},
     [MachineTypes.REMOTE_RUNNER_AGENT]: {},
+    [MachineTypes.REMOTE_POOL]: {},
     [MachineTypes.OCI_BASIC]: {
         'subnetId': null,
         'subnetMask': null,

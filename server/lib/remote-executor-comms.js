@@ -23,18 +23,29 @@ const remoteExecutorHandlers = {
         removeRun: handleRJRRemove,
     },
     [MachineTypes.OCI_BASIC]: {
-        run: () => { console.log("TODO run"); return Promise.resolve();},
-        stop: () => { console.log("TODO stop"); return Promise.resolve();},
-        getStatus: () => { console.log("TODO status"); return Promise.resolve();},
-        removeRun: () => { console.log("TODO remove"); return Promise.resolve();},
+        run: () => { console.log("TODO run"); return Promise.resolve(); },
+        stop: () => { console.log("TODO stop"); return Promise.resolve(); },
+        getStatus: () => { console.log("TODO status"); return Promise.resolve(); },
+        removeRun: () => { console.log("TODO remove"); return Promise.resolve(); },
+    },
+    [MachineTypes.REMOTE_POOL]: {
+        run: handleRJRRun,
+        stop: handleRJRStop,
+        getStatus: handleRJRStatus,
+        removeRun: handleRJRRemove,
     }
 }
 Object.freeze(remoteExecutorHandlers);
 
+function isMachineRPSBased(executionMachine) {
+    return executionMachine.type === MachineTypes.REMOTE_POOL || executionMachine.type === MachineTypes.OCI_BASIC;
+}
+
 function getMachineURLBase(executionMachine) {
     // RJR-type specific, we are sure the parameters contain at least the IP
     const port = executionMachine.parameters.port;
-    return `https://${executionMachine.parameters.hostname || executionMachine.parameters.ip_address}:${port}`;
+    const path = isMachineRPSBased(executionMachine) ? '/rps' : '';
+    return `https://${executionMachine.parameters.hostname || executionMachine.parameters.ip_address}:${port}${path}`;
 }
 
 async function handleRJRRun(executionMachine, runId, jobId, spec) {

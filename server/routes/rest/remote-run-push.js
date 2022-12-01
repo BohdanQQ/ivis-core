@@ -164,7 +164,7 @@ router.postAsync('/remote/status', async (req, res) => {
             }
             stateWritten = stateToWrite === incomingStatus ? incomingStatus : null;
 
-            const diffObj = {
+            let diffObj = {
                 status: stateToWrite,
                 output: run.output || ''
             };

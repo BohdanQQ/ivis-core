@@ -91,6 +91,19 @@ const executorInitializer = {
 
         await updateExecStatus(filteredEntity.id, ExecutorStatus.READY, tx);
     },
+    [MachineTypes.REMOTE_POOL]: async (filteredEntity, tx) => {
+        try {
+            await generateCertificates(filteredEntity, filteredEntity.parameters.ip_address, filteredEntity.parameters.hostname, tx);
+        }
+        catch (error) {
+            remoteCert.tryRemoveCertificate(filteredEntity.id);
+            await logErrorToExecutor(filteredEntity.id, "Error when creating certificates", error);
+            await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL, tx);
+            return;
+        }
+
+        await updateExecStatus(filteredEntity.id, ExecutorStatus.READY, tx);
+    },
     [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
         (async () => {
             let error = null;
