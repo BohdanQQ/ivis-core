@@ -376,12 +376,12 @@ async function registerPoolRemoval(poolParameters) {
     const { subnetMask } = poolParameters;
     const searchResult = /^11\.0\.(?<index>[0-9]{1,3})\.0\/24$/g.exec(subnetMask);
     if (searchResult === null || !searchResult.groups || !searchResult.groups.index) {
-        throw Error(`Invalid subnetMask provided: ${subnetMask}`);
+        throw new Error(`Invalid subnetMask provided: ${subnetMask}`);
     }
 
     const indexToRemove = Number.parseInt(searchResult.groups.index);
     if (indexToRemove <= 0 || indexToRemove >= 255) {
-        throw Error(`Invalid subnetMask provided: ${subnetMask}`);
+        throw new Error(`Invalid subnetMask provided: ${subnetMask}`);
     }
     let ipsUsed = await getIPsUsed();
     ipsUsed = ipsUsed.filter((x) => x.index != indexToRemove);
