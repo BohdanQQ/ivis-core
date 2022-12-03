@@ -227,7 +227,6 @@ async function waitForSSHConnection(host, port, user, attemptCooldownSecs, timeo
 
 function getInstanceSetupCommands(subnetMask) {
     return [
-        //'sudo yum update -y',
         'sudo dnf install -y dnf-utils zip unzip curl git',
         'sudo dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo',
         'sudo dnf install -y docker-ce',
@@ -333,7 +332,17 @@ function convertParams(params) {
 
 // OCI Homogenous pool:
 // TODO: mutex all 3 fns?
-async function createOCIBasicPool(executorId, params) {
+/**
+ * @callback certificateGenerator
+ * @param {string} ip - the IP address associated with the pool master
+ * @returns {Promise<void>}
+ */
+
+/**
+ * @param { certificateGenerator } certificateGeneratorFunction 
+ * @returns 
+ */
+async function createOCIBasicPool(executorId, params, certificateGeneratorFunction) {
     let retVal = {
         subnetId: null,
         subnetMask: null,
@@ -370,6 +379,8 @@ async function createOCIBasicPool(executorId, params) {
 
         log.info(LOG_ID, "Installing required software on pool peers");
         await runCommandsOnPeers(retVal.poolInstanceIds, executorId, (instanceIp) => getRJRInstallationCommands(retVal.masterInstanceSubnetIp, instanceIp, retVal.subnetMask));
+        log.info(LOG_ID, "Generating certificates for the master peer");
+        await certificateGeneratorFunction(retval.masterInstanceIp);
         log.info(LOG_ID, "Installing additional software on master peer");
         await runCommandsOnPeers([retVal.masterInstanceId], executorId, () => getPSInstallationCommands());
     } catch (error) {

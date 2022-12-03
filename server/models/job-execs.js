@@ -57,6 +57,9 @@ async function logErrorToExecutor(executorId, precedingMessage, error) {
 }
 
 async function generateCertificates(executor, ip, hostname, tx) {
+    if (!tx) {
+        tx = knex;
+    }
     const certHexSerial = await remoteCert.createRemoteExecutorCertificate(executor, ip, hostname);
     if (certHexSerial === null) {
         throw new Error("Certificate creation failed");
@@ -110,7 +113,7 @@ const executorInitializer = {
             try {
                 const vcn = await getVcn();
                 log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
-                const state = await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters);
+                const state = await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters, (ip) => generateCertificates(filteredEntity, ip, null, null));
                 let stateToSave = { ...state };
                 delete stateToSave.error;
                 await knex(EXEC_TABLE).update({ 'state': JSON.stringify(stateToSave) }).where('id', filteredEntity.id);
