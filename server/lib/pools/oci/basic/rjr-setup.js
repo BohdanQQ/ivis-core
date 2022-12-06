@@ -51,6 +51,7 @@ ivisCore:
   # e.g. when not running on the internet...
   # Set to false if the IVIS-core server certificate may be verified normally 
   # (using global certificate chain of trust)
+  # connects via HTTP - does not matter
   useLocalCA: true
   CACert: ./cert/ca.cert
   venvCmd: 'python3 -m venv'
@@ -190,7 +191,11 @@ function proxyTo(location, name) {
     SSLProxyEngine On
 
     SSLProxyMachineCertificateFile ${path(PATHS.machineClient).container}
-    SSLProxyCACertificateFile ${path(PATHS.ca).container}
+    # CA of the server we are proxying to - the expected value here is a trusted ROOT CA
+    # otherwise (if IVIS-core does not use a verifiable certificate) use (TODO?)
+    # SSLProxyCACertificateFile ${path(PATHS.ca).container}
+
+    SSLProxyCACertificateFile /etc/ssl/certs/ca-certificates.crt
     SSLProxyCheckPeerCN on
     SSLProxyCheckPeerExpire on
     SSLProxyVerify require
