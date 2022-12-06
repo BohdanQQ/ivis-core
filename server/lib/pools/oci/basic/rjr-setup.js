@@ -263,7 +263,7 @@ function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
 
     return [
         // allow only the master instance to connect to the docker RJR_LISTEN_PORT
-        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RJR_LISTEN_PORT} ! -s ${masterInstancePrivateIp} -j DROP`,
+        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RJR_LISTEN_PORT} ! -s ${masterInstancePrivateIp}/32 -j DROP`,
         `git clone ${repo}`, // TODO fix the location (make it independent of repo name)
         cmdInRepo(`git checkout ${commit}`),
         cmdInRepo(`cat > ./config/default.yml << HEREDOC_EOF\n${rjrConfigContents}\nHEREDOC_EOF`),
