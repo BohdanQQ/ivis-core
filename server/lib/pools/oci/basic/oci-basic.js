@@ -10,11 +10,11 @@ const {
     virtualNetworkClient, virtualNetworkWaiter, COMPARTMENT_ID, TENANCY_ID, identityClient,
     computeClient, computeWaiter
 } = require('./clients');
-
+const certs = require('../../../remote-certificates');
 const log = require('../../../log');
 const { getPublicSSHKey, executeCommand, canMakeSSHConnectionTo } = require("../../../instance-ssh");
 const knex = require("../../../knex");
-const { getRJRSetupCommands } = require('./rjr-setup');
+const { getRJRSetupCommands, getRPSSetupCommands } = require('./rjr-setup');
 const LOG_ID = 'ocibasic-pool-creator';
 
 const POOL_PEER_OS = 'Oracle Linux';
@@ -233,7 +233,6 @@ function getInstanceSetupCommands(subnetMask) {
         'sudo systemctl stop firewalld && sudo systemctl disable firewalld',
         'sudo yum install -y iptables-services && sudo systemctl enable iptables && sudo systemctl start iptables',
         'sudo systemctl enable docker.service && sudo systemctl start docker.service && sudo docker info', // sets up docker iptables configuration
-        `sudo iptables -I DOCKER-USER -i ens3 ! -s ${subnetMask} -j DROP`, // for starters, allow only the subnet members to access the docker services
         'sudo curl -L https://github.com/docker/compose/releases/download/v2.12.2/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose',
         'sudo chmod +x /usr/local/bin/docker-compose',
         '/usr/local/bin/docker-compose  --version',
@@ -246,9 +245,11 @@ function getRJRInstallationCommands(masterInstancePrivateIp, instancePrivateIp, 
     return commands;
 }
 
-function getPSInstallationCommands() {
-    // TODO
-    return ['echo hello, PS > ./hello2.txt'];
+function getRPSInstallationCommands(peerIps, masterInstancePrivateIp, masterInstancePublicIp, subnetMask, execId) {
+    const caCert = certs.getRemoteCACert();
+    const { cert, key } = certs.getExecutorCertKey(execId);
+
+    return [...getRPSSetupCommands(peerIps, masterInstancePrivateIp, masterInstancePublicIp, subnetMask, caCert, cert, key)];
 }
 
 async function runCommandsOnPeers(instanceIds, executorId, commandGenerator) {
@@ -364,7 +365,7 @@ async function createOCIBasicPool(executorId, params, certificateGeneratorFuncti
         retVal.poolInstanceIds = await createPoolPeers(params.size, executorId, retVal.subnetId, params);
 
         if (!(retVal.poolInstanceIds instanceof Array) || retVal.poolInstanceIds.length <= 0) {
-            log.error(LOG_ID, "Pool instance creation unexpectedly returned ", retval.poolInstanceIds);
+            log.error(LOG_ID, "Pool instance creation unexpectedly returned ", retVal.poolInstanceIds);
             throw new Error("No pool peers have been created! Cannot select Master Peer.");
         }
         retVal.masterInstanceId = retVal.poolInstanceIds[0];
@@ -379,10 +380,12 @@ async function createOCIBasicPool(executorId, params, certificateGeneratorFuncti
 
         log.info(LOG_ID, "Installing required software on pool peers");
         await runCommandsOnPeers(retVal.poolInstanceIds, executorId, (instanceIp) => getRJRInstallationCommands(retVal.masterInstanceSubnetIp, instanceIp, retVal.subnetMask));
+        
         log.info(LOG_ID, "Generating certificates for the master peer");
-        await certificateGeneratorFunction(retval.masterInstanceIp);
+        await certificateGeneratorFunction(retVal.masterInstanceIp);
+        const peerIPs = await (Promise.all( retVal.poolInstanceIds.map(async (id) => (await getInstanceVnic(id)).privateIp)));
         log.info(LOG_ID, "Installing additional software on master peer");
-        await runCommandsOnPeers([retVal.masterInstanceId], executorId, () => getPSInstallationCommands());
+        await runCommandsOnPeers([retVal.masterInstanceId], executorId, () => getRPSInstallationCommands(peerIPs, retVal.masterInstanceIp,retVal.masterInstanceSubnetIp, retVal.subnetMask, executorId));
     } catch (error) {
         // TODO remove subnet and after that:
         // if (retVal.subnetMask) {
