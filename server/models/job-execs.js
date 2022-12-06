@@ -120,7 +120,6 @@ const executorInitializer = {
                 if (state.error !== null) {
                     throw state.error;
                 }
-                await generateCertificates(filteredEntity, state.masterInstanceIp, null, knex);
             } catch (err) {
                 error = err;
             } finally {
