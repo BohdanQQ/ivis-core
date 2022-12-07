@@ -311,4 +311,4 @@ function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInst
     ];
 }
 
-module.exports = { getRJRSetupCommands, getRPSSetupCommands }
+module.exports = { getRJRSetupCommands, getRPSSetupCommands, RPS_PUBLIC_PORT }
