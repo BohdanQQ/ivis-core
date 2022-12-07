@@ -51,11 +51,20 @@ function getExecutorCommsPort(executor) {
     }
 }
 
+function getExecutorCommsHostOrIP(executor) {
+    if (executor.type === MachineTypes.OCI_BASIC) {
+        return executor.state.masterInstanceIp;
+    } else {
+        return executionMachine.parameters.hostname || executionMachine.parameters.ip_address;
+    }
+}
+
 function getMachineURLBase(executionMachine) {
     // RJR-type specific, we are sure the parameters contain at least the IP
     const port = getExecutorCommsPort(executionMachine);
     const path = isMachineRPSBased(executionMachine) ? '/rps' : '';
-    return `https://${executionMachine.parameters.hostname || executionMachine.parameters.ip_address}:${port}${path}`;
+    const host = getExecutorCommsHostOrIP(executionMachine);
+    return `https://${host}:${port}${path}`;
 }
 
 async function handleRJRRun(executionMachine, runId, jobId, spec) {
