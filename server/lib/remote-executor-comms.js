@@ -6,6 +6,7 @@ const knex = require('./knex');
 const { MachineTypes } = require('../../shared/remote-run');
 const remoteCerts = require('./remote-certificates');
 const archiver = require('../lib/task-archiver');
+const { RPS_PUBLIC_PORT } = require('./pools/oci/basic/rjr-setup');
 
 const httpsAgent = new https.Agent({
     ca: remoteCerts.getRemoteCACert(),
@@ -23,10 +24,10 @@ const remoteExecutorHandlers = {
         removeRun: handleRJRRemove,
     },
     [MachineTypes.OCI_BASIC]: {
-        run: () => { console.log("TODO run"); return Promise.resolve(); },
-        stop: () => { console.log("TODO stop"); return Promise.resolve(); },
-        getStatus: () => { console.log("TODO status"); return Promise.resolve(); },
-        removeRun: () => { console.log("TODO remove"); return Promise.resolve(); },
+        run: handleRJRRun,
+        stop: handleRJRStop,
+        getStatus: handleRJRStatus,
+        removeRun: handleRJRRemove,
     },
     [MachineTypes.REMOTE_POOL]: {
         run: handleRJRRun,
@@ -41,9 +42,18 @@ function isMachineRPSBased(executionMachine) {
     return executionMachine.type === MachineTypes.REMOTE_POOL || executionMachine.type === MachineTypes.OCI_BASIC;
 }
 
+function getExecutorCommsPort(executor) {
+    if (executor.type === MachineTypes.OCI_BASIC) {
+        return RPS_PUBLIC_PORT;
+    }
+    else {
+        return executor.parameters.port;
+    }
+}
+
 function getMachineURLBase(executionMachine) {
     // RJR-type specific, we are sure the parameters contain at least the IP
-    const port = executionMachine.parameters.port;
+    const port = getExecutorCommsPort(executionMachine);
     const path = isMachineRPSBased(executionMachine) ? '/rps' : '';
     return `https://${executionMachine.parameters.hostname || executionMachine.parameters.ip_address}:${port}${path}`;
 }
