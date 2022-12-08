@@ -15,6 +15,7 @@ const httpsAgent = new https.Agent({
 });
 
 const httpsClient = axios.create({ httpsAgent });
+const commsTimeoutMs = 2000;
 
 const remoteExecutorHandlers = {
     [MachineTypes.REMOTE_RUNNER_AGENT]: {
@@ -84,19 +85,19 @@ async function handleRJRRun(executionMachine, runId, jobId, spec) {
         taskId: task.id
     };
 
-    await httpsClient.post(`${getMachineURLBase(executionMachine)}/run/${runId}`, runRequest);
+    await httpsClient.post(`${getMachineURLBase(executionMachine)}/run/${runId}`, runRequest, { timeout: commsTimeoutMs });
 }
 
 async function handleRJRStop(executionMachine, runId) {
-    await httpsClient.post(`${getMachineURLBase(executionMachine)}/run/${runId}/stop`);
+    await httpsClient.post(`${getMachineURLBase(executionMachine)}/run/${runId}/stop`, { timeout: commsTimeoutMs });
 }
 
 async function handleRJRRemove(executionMachine, runId) {
-    await httpsClient.delete(`${getMachineURLBase(executionMachine)}/run/${runId}`);
+    await httpsClient.delete(`${getMachineURLBase(executionMachine)}/run/${runId}`, { timeout: commsTimeoutMs });
 }
 
 async function handleRJRStatus(executionMachine, runId) {
-    return await httpsClient.get(`${getMachineURLBase(executionMachine)}/run/${runId}`).then(resp => resp.data);
+    return await httpsClient.get(`${getMachineURLBase(executionMachine)}/run/${runId}`, { timeout: commsTimeoutMs }).then(resp => resp.data);
 }
 
 /**
