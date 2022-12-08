@@ -220,7 +220,7 @@ async function setupVcnIfNeeded() {
         return result;
     }
     else if (setupTask === undefined) {
-        log.info(LOG_ID, `VCN setup task has already run -> return state values: ${state}`);
+        log.info(LOG_ID, `VCN setup task has already run -> return state values:`, state);
         return { vcn: state.vcn, routeTable: state.routeTable, gateway: state.gateway, securityList: state.securityList, err: null };
     }
     else {
