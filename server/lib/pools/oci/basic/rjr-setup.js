@@ -1,4 +1,5 @@
 const config = require('../../../config');
+const RJR_INTERNAL_PORT = 8080;
 const RJR_LISTEN_PORT = 80;
 const RJR_PUBLIC_PORT = 80;
 
@@ -6,22 +7,23 @@ const RJRComposeFile = `version: '3'
 services:
   rjr-proxy:
     restart: always
+    network_mode: "host"
     image: nginx
     volumes:
       - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       # - ./cert/:/opt/cert:ro # not used here
-      # in IVIS-core ${RJR_PUBLIC_PORT} should be set as the executor port parameter
-    ports:
-      - ${RJR_PUBLIC_PORT}:${RJR_LISTEN_PORT}
     depends_on:
       - rjr
 
   rjr:
     restart: always
+    network_mode: "host"
     build:
       context: ./
       dockerfile: ./Dockerfile
       network: host
+    ports:
+        - 127.0.0.1:${RJR_INTERNAL_PORT}:${RJR_INTERNAL_PORT}
     volumes:
     # database directory
       - ./data:/opt/ivis-remote/data
@@ -75,7 +77,7 @@ jobRunner:
   
   # this one should not really change when using docker, 
   # since it is very much internal to the docker compose setup 
-  port: 8080
+  port: ${RJR_INTERNAL_PORT}
 
   # in case certificate serial number is not used for some reason
   machineId: 0
@@ -104,7 +106,7 @@ server {
 
 
    location / {
-        proxy_pass http://rjr:8080;
+        proxy_pass http://localhost:${RJR_INTERNAL_PORT};
 
         proxy_set_header        Host $host;
         proxy_set_header        X-Real-IP $remote_addr;
@@ -152,6 +154,7 @@ const RPSComposeFile = `version: '3'
 services:
   rps-proxy:
     image: httpd:2.4.54
+    network_mode: "host"
     volumes:
       - ./config/apache/apache.conf:/usr/local/apache2/conf/httpd.conf:ro
       - ./config/apache/vhosts.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
@@ -161,17 +164,15 @@ services:
       - ${path(PATHS.ca).physical}:${path(PATHS.ca).container}:ro
       - ${path(PATHS.cert).physical}:${path(PATHS.cert).container}:ro
       - ${path(PATHS.key).physical}:${path(PATHS.key).container}:ro
-    ports:
-      - ${RPS_PUBLIC_PORT}:${RPS_PUBLIC_PORT}
-      - ${RPS_PEER_PORT_TRUSTED}:${RPS_PEER_PORT_TRUSTED}
-      - ${RPS_PEER_PORT_SBOX}:${RPS_PEER_PORT_SBOX}
-      - ${RPS_PEER_PORT_ES}:${RPS_PEER_PORT_ES}
   rps:
     restart: always
+    network_mode: "host"
     build:
       context: ./
       dockerfile: ./Dockerfile
       network: host
+    ports:
+        - 127.0.0.1:${RPS_LISTEN_PORT}:${RPS_LISTEN_PORT} 
     volumes:
       - ./config:/opt/ivis-rps/config
 `;
@@ -231,8 +232,8 @@ SSLSessionCache "shmcb:/usr/local/apache/logs/ssl_gcache_data(512000)"
     # (if the other port which accesses the RPS node app is restricted to peers only...)
 	<Location "/rps">
 		ProxyPreserveHost On
-		ProxyPass "http://rps:${RPS_LISTEN_PORT}/rps"
-		ProxyPassReverse "http://rps:${RPS_LISTEN_PORT}/rps"
+		ProxyPass "http://localhost:${RPS_LISTEN_PORT}/rps"
+		ProxyPassReverse "http://localhost:${RPS_LISTEN_PORT}/rps"
 	</Location>
 
 </VirtualHost>
@@ -267,7 +268,11 @@ function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
 
     return [
         // allow only the master instance to connect to the docker RJR_LISTEN_PORT
-        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RJR_LISTEN_PORT} ! -s ${masterInstancePrivateIp}/32 -j DROP`,
+        // creates a new chain restricting access for only the master instance if the port is RJR_LISTEN_PORT
+        `sudo iptables -N MASTER_PEER_ACCESS`,
+        `sudo iptables -A MASTER_PEER_ACCESS --src ${masterInstancePrivateIp} -j ACCEPT`,
+        `sudo iptables -A MASTER_PEER_ACCESS -j DROP`,
+        `sudo iptables -I INPUT -p tcp --dport ${RJR_LISTEN_PORT} -j MASTER_PEER_ACCESS`,
         `git clone ${repo}`, // TODO fix the location (make it independent of repo name)
         cmdInRepo(`git checkout ${commit}`),
         cmdInRepo(`cat > ./config/default.yml << HEREDOC_EOF\n${rjrConfigContents}\nHEREDOC_EOF`),
@@ -290,11 +295,15 @@ function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInst
     const cmdInRepo = (cmd) => `cd ./ivis-remote-pool-scheduler && ${cmd}`;
 
     return [
-        // make PEER ports PEER-only 
-        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RPS_PEER_PORT_ES} ! -s ${subnetMask} -j DROP`,
-        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RPS_PEER_PORT_SBOX} ! -s ${subnetMask} -j DROP`,
-        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RPS_PEER_PORT_TRUSTED} ! -s ${subnetMask} -j DROP`,
-        `sudo iptables -I DOCKER-USER -i ens3 -p tcp --dport ${RPS_PUBLIC_PORT} -j RETURN`, // make public port public (topmost rule)
+        // make PEER ports PEER-only
+        // creates a new chain which allows traffic only from the cloud subnet
+        `sudo iptables -N POOL_PEER_ACCESS`,
+        `sudo iptables -A POOL_PEER_ACCESS --src ${subnetMask} -j ACCEPT`,
+        `sudo iptables -A POOL_PEER_ACCESS -j DROP`,
+        `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_ES} -j POOL_PEER_ACCESS`,
+        `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_SBOX} -j POOL_PEER_ACCESS`,
+        `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_TRUSTED} -j POOL_PEER_ACCESS`,
+        `sudo iptables -I INPUT -p tcp --dport ${RPS_PUBLIC_PORT} -j ACCEPT`, // make public port public (topmost rule)
         `git clone ${repo}`,
         cmdInRepo(`git checkout ${commit}`),
         cmdInRepo(`mkdir ./cert`),
