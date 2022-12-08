@@ -1,8 +1,5 @@
 const {
     createNewPoolParameters,
-    registerPoolRemoval,
-    VCN_CIDR_BLOCK,
-    getVcn,
     getGlobalStateForOCIExecType
 } = require('./global-state');
 const core = require("oci-core");
@@ -388,12 +385,7 @@ async function createOCIBasicPool(executorId, params, certificateGeneratorFuncti
         log.info(LOG_ID, "Installing additional software on master peer");
         await runCommandsOnPeers([retVal.masterInstanceId], executorId, () => getRPSInstallationCommands(peerIPs, retVal.masterInstanceIp,retVal.masterInstanceSubnetIp, retVal.subnetMask, executorId));
     } catch (error) {
-        // TODO remove subnet and after that:
-        // if (retVal.subnetMask) {
-        //     await registerPoolRemoval({
-        //         subnetMask: retVal.subnetMask
-        //     });
-        // }
+        // TODO failure recovery - terminate all created peers
         retVal.error = error;
     }
 
