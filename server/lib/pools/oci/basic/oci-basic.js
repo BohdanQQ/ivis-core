@@ -1,6 +1,7 @@
 const {
     createNewPoolParameters,
-    getGlobalStateForOCIExecType
+    getGlobalStateForOCIExecType,
+    INSTANCE_SSH_PORT
 } = require('./global-state');
 const core = require("oci-core");
 const {
@@ -252,13 +253,10 @@ function getRPSInstallationCommands(peerIps, masterInstancePrivateIp, masterInst
 
 async function runCommandsOnPeers(instanceIds, executorId, commandGenerator) {
     const user = 'opc';
-    // TODO extract port from global state (creates securityLists)
-    const sshPort = 22;
-
     try {
         const installationPromises = instanceIds.map(async (id) => {
             const vnic = await getInstanceVnic(id);
-            await waitForSSHConnection(vnic.publicIp, sshPort, user, 10, config.oci.instanceWaitSecs, 30);
+            await waitForSSHConnection(vnic.publicIp, INSTANCE_SSH_PORT, user, 10, config.oci.instanceWaitSecs, 30);
             const commands = commandGenerator(vnic.privateIp);
             for (const command of commands) {
                 log.verbose(LOG_ID, `executing: ${command}`);
@@ -266,7 +264,7 @@ async function runCommandsOnPeers(instanceIds, executorId, commandGenerator) {
                 const maxRetryCount = 3;
                 let retryNum = 0;
                 while (retryNum <= maxRetryCount) {
-                    const executionResult = await executeCommand(command, vnic.publicIp, sshPort, user);
+                    const executionResult = await executeCommand(command, vnic.publicIp, INSTANCE_SSH_PORT, user);
                     if (!executionResult.error) {
                         break;
                     }

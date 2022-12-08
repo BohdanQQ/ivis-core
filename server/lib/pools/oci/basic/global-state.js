@@ -6,10 +6,12 @@ const {
 } = require('./clients');
 const core = require("oci-core");
 const { MachineTypes } = require('../../../../../shared/remote-run');
+const { REQUIRED_ALLOWED_PORTS } = require('../basic/rjr-setup');
 const EXECUTOR_TYPE = MachineTypes.OCI_BASIC;
 const GLOBAL_EXEC_STATE_TABLE = 'global_executor_type_state';
 const VCN_CIDR_BLOCK = '11.0.0.0/16';
 const RESERVED_VCN_NAME = 'IVIS-POOL-VCN';
+const INSTANCE_SSH_PORT = 22;
 
 /** Checks VCN state with the OCI servers, waits for resoltution if needed */
 async function isSavedVcnOk(vcnId) {
@@ -100,7 +102,8 @@ async function createSecurityList(vcnId) {
             }
         };
     };
-    const inRules = [getInRule(22), getInRule(80), getInRule(443), getInRule(10327, 10330)];
+    const inRules = REQUIRED_ALLOWED_PORTS.map((portNum) => getInRule(portNum));
+    inRules.push(getInRule(INSTANCE_SSH_PORT));
     const outRules = [{
         destination: '0.0.0.0/0',
         protocol: "all",
@@ -401,5 +404,6 @@ module.exports = {
     registerPoolRemoval,
     getVcn,
     VCN_CIDR_BLOCK,
-    getGlobalStateForOCIExecType
+    getGlobalStateForOCIExecType,
+    INSTANCE_SSH_PORT
 }

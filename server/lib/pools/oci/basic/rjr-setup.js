@@ -1,7 +1,50 @@
 const config = require('../../../config');
-const RJR_INTERNAL_PORT = 8080;
+
+// all containers are configured to run on the !!!host network!!!
+// (to allow convenient configuration of the iptables using the VMs' subnet created in OCI)
+// some containers, however, expose their ports to localhost only to protect them similarly 
+// to how the default docker network would (given no other application is proxying the same localhost port)
+
+// Remote Job Runner (RJR):
+
+// internal port for proxy -> RJR applicaion communication
+const RJR_INTERNAL_PORT = 8080; // ideally exposed only to localhost
+// for outside world -> (proxy -> RJR) communication
 const RJR_LISTEN_PORT = 80;
-const RJR_PUBLIC_PORT = 80;
+
+// Remote Pool Scheduler (RPS):
+
+// port for RJR to proxy to IVIS-core's trusted, sandbox, elasticsearch endpoint
+const RPS_PEER_PORT_TRUSTED = 10329;
+const RPS_PEER_PORT_SBOX = 10330;
+const RPS_PEER_PORT_ES = 10328;
+// port for the IVIS-core (or any other client-certified machine) to connect to
+const RPS_PUBLIC_PORT = 10327;
+
+const RPS_LISTEN_PORT = 10000; // ideally exposed only to localhost
+
+// RPS_LISTEN_PORT and RJR_INTERNAL_PORT are not in this list becuase 
+// in the current implementation, they are bound to localhost/loopback interface
+// and thus no inter-VM communication is required on the subnet
+const REQUIRED_ALLOWED_PORTS = [RJR_LISTEN_PORT, RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED, RPS_PUBLIC_PORT];
+
+{
+    // check port for duplicates, since all containers are running on the host network
+    // (especially important for the master peer where both the RJR and RPS applications run)
+    const allPorts = [
+        RJR_LISTEN_PORT, RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED, RPS_PUBLIC_PORT, RJR_INTERNAL_PORT, RPS_LISTEN_PORT
+    ];
+    let set = new Set();
+    const conflictFound = allPorts.reduce((found, current) => {
+        let result = found || set.has(current);
+        set.add(current);
+        return result;
+    }, false);
+    if (conflictFound) {
+        throw new Error(`OCI Cloud Pool Config Error: port clash detected in ports: ${allPorts.join(' ')}`);
+    }
+
+}
 
 const RJRComposeFile = `version: '3'
 services:
@@ -32,11 +75,6 @@ services:
       - ./config/default.yml:/opt/ivis-remote/config/default.yml
       # - ./cert:/opt/ivis-remote/cert # not used
 `;
-// all three should be forwarded with XXXX:XXXX on RPS
-const RPS_PEER_PORT_TRUSTED = 10329;
-const RPS_PEER_PORT_SBOX = 10330;
-const RPS_PEER_PORT_ES = 10328;
-const RPS_PUBLIC_PORT = 10327;
 
 const getRJRConfigFile = (masterPeerIp) => `# all paths are relative to the project root
 ivisCore:
@@ -117,7 +155,6 @@ server {
 }
 `;
 
-const RPS_LISTEN_PORT = 10000;
 
 const PATHS = {
     machineClient: 0, ca: 1, cert: 2, key: 3
@@ -181,7 +218,7 @@ const getRPSConfigFile = (peerIps) => `
 rps:
     port: ${RPS_LISTEN_PORT}
     peerIPs: [${peerIps.map((ip) => `'${ip}'`).join(',')}]
-    peerRJRPort: ${RJR_PUBLIC_PORT}
+    peerRJRPort: ${RJR_LISTEN_PORT}
 `;
 
 function proxyTo(location, name) {
@@ -281,12 +318,7 @@ function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
         cmdInRepo(`sudo /usr/local/bin/docker-compose up -d --build`),
     ];
 }
-if ([RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED].indexOf(RPS_PUBLIC_PORT) !== -1) {
-    throw new Error("Port clash on master peer!");
-}
-if ([RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED].indexOf(RJR_PUBLIC_PORT) !== -1) {
-    throw new Error("Port clash on master peer!");
-}
+
 function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInstancePublicIp, subnetMask, caCert, cert, key) {
     const repo = 'https://github.com/BohdanQQ/ivis-remote-pool-scheduler';
     const commit = '0c677cd4d8b3a1e59380446b84b9f2a588f2a02a';
@@ -319,4 +351,4 @@ function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInst
     ];
 }
 
-module.exports = { getRJRSetupCommands, getRPSSetupCommands, RPS_PUBLIC_PORT }
+module.exports = { getRJRSetupCommands, getRPSSetupCommands, RPS_PUBLIC_PORT, REQUIRED_ALLOWED_PORTS }
