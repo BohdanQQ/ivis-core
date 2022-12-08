@@ -15,6 +15,7 @@ const log = require('../../../log');
 const { getPublicSSHKey, executeCommand, canMakeSSHConnectionTo } = require("../../../instance-ssh");
 const knex = require("../../../knex");
 const { getRJRSetupCommands, getRPSSetupCommands } = require('./rjr-setup');
+const config = require('../../../config');
 const LOG_ID = 'ocibasic-pool-creator';
 
 const POOL_PEER_OS = 'Oracle Linux';
@@ -260,7 +261,7 @@ async function runCommandsOnPeers(instanceIds, executorId, commandGenerator) {
     try {
         const installationPromises = instanceIds.map(async (id) => {
             const vnic = await getInstanceVnic(id);
-            await waitForSSHConnection(vnic.publicIp, sshPort, user, 10, 120, 30);
+            await waitForSSHConnection(vnic.publicIp, sshPort, user, 10, config.oci.instanceWaitSecs, 30);
             const commands = commandGenerator(vnic.privateIp);
             for (const command of commands) {
                 log.verbose(LOG_ID, `executing: ${command}`);
