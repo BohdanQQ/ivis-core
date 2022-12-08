@@ -43,6 +43,11 @@ SMS:
   region:
 
 oci:
+# true if IVIS-core uses a SSL certificate backed by the chain of trust
+# false if IVIS-core uses a locally-issued certificate
+  ivisSSLCertVerifiableViaRootCAs: true
+# seconds to wait for an instance to become reachable via SSH (after creation. provisioning)
+  instanceWaitSecs: 180
 # FILL IN BEFORE USE !!! or leave empty, if you do not want to use it
 # using Oracle Cloud Infrastructure for distributed job execution
   compartmentId: null

@@ -184,6 +184,7 @@ rps:
 `;
 
 function proxyTo(location, name) {
+    const CAPath = config.oci.ivisSSLCertVerifiableViaRootCAs ? '/etc/ssl/certs/ca-certificates.crt' : path(PATHS.ca).container;
     return `LogLevel info ssl:warn
     ErrorLog /var/log/apache_${name}_error.log
 
@@ -192,10 +193,8 @@ function proxyTo(location, name) {
 
     SSLProxyMachineCertificateFile ${path(PATHS.machineClient).container}
     # CA of the server we are proxying to - the expected value here is a trusted ROOT CA
-    # otherwise (if IVIS-core does not use a verifiable certificate) use (TODO?)
-    # SSLProxyCACertificateFile ${path(PATHS.ca).container}
 
-    SSLProxyCACertificateFile /etc/ssl/certs/ca-certificates.crt
+    SSLProxyCACertificateFile ${CAPath}
     SSLProxyCheckPeerCN on
     SSLProxyCheckPeerExpire on
     SSLProxyVerify require
