@@ -294,14 +294,18 @@ SSLSessionCache "shmcb:/usr/local/apache/logs/ssl_gcache_data(512000)"
     ${proxyTo(config.www.sandboxUrlBase, 'peer_sbox')}
 </VirtualHost>`;
 
+const CLONE_FOLDER_RJR = 'ivis-rjr';
+const CLONE_FOLDER_RPS = 'ivis-rps';
+
+if (CLONE_FOLDER_RJR.indexOf(CLONE_FOLDER_RPS) !== -1 || CLONE_FOLDER_RPS.indexOf(CLONE_FOLDER_RJR) !== -1) {
+    throw new Error(`OCI Cloud Pool Config Error: repository folder clash: ${CLONE_FOLDER_RJR} ${CLONE_FOLDER_RPS}`)
+}
+
 function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
-    // TODO move to config
-    const repo = 'https://github.com/BohdanQQ/ivis-remote-job-runner.git';
-    const commit = 'e710f800bf7b9fe3c7e1c2b671bbd09466b92ffe';
     const composeContents = RJRComposeFile;
     const nginxConfigContents = getRJRNginxConfig(instancePrivateIp);
     const rjrConfigContents = getRJRConfigFile(masterInstancePrivateIp);
-    const cmdInRepo = (cmd) => `cd ./ivis-remote-job-runner && ${cmd}`;
+    const cmdInRepo = (cmd) => `cd ./${CLONE_FOLDER_RJR} && ${cmd}`;
 
     return [
         // allow only the master instance to connect to the docker RJR_LISTEN_PORT
@@ -310,8 +314,8 @@ function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
         `sudo iptables -A MASTER_PEER_ACCESS --src ${masterInstancePrivateIp} -j ACCEPT`,
         `sudo iptables -A MASTER_PEER_ACCESS -j DROP`,
         `sudo iptables -I INPUT -p tcp --dport ${RJR_LISTEN_PORT} -j MASTER_PEER_ACCESS`,
-        `git clone ${repo}`, // TODO fix the location (make it independent of repo name)
-        cmdInRepo(`git checkout ${commit}`),
+        `git clone ${config.oci.peerRJRRepo.url} ${CLONE_FOLDER_RJR}`,
+        cmdInRepo((config.oci.peerRJRRepo.commit ? `git checkout ${config.oci.peerRJRRepo.commit}` : 'echo Using the master HEAD')),
         cmdInRepo(`cat > ./config/default.yml << HEREDOC_EOF\n${rjrConfigContents}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ./config/nginx/nginx.conf << HEREDOC_EOF\n${nginxConfigContents}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ./docker-compose.yml << HEREDOC_EOF\n${composeContents}\nHEREDOC_EOF`),
@@ -320,11 +324,9 @@ function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
 }
 
 function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInstancePublicIp, subnetMask, caCert, cert, key) {
-    const repo = 'https://github.com/BohdanQQ/ivis-remote-pool-scheduler';
-    const commit = '0c677cd4d8b3a1e59380446b84b9f2a588f2a02a';
     const apacheConfigContents = getRPSApacheProxyConfig(masterInstancePublicIp, masterInstancePrivateIp);
     const rpsConfigContents = getRPSConfigFile(peerPrivateIps);
-    const cmdInRepo = (cmd) => `cd ./ivis-remote-pool-scheduler && ${cmd}`;
+    const cmdInRepo = (cmd) => `cd ./${CLONE_FOLDER_RPS} && ${cmd}`;
 
     return [
         // make PEER ports PEER-only
@@ -336,8 +338,8 @@ function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInst
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_SBOX} -j POOL_PEER_ACCESS`,
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_TRUSTED} -j POOL_PEER_ACCESS`,
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PUBLIC_PORT} -j ACCEPT`, // make public port public (topmost rule)
-        `git clone ${repo}`,
-        cmdInRepo(`git checkout ${commit}`),
+        `git clone ${config.oci.peerRPSRepo.url} ${CLONE_FOLDER_RPS}`,
+        cmdInRepo(`git checkout ${config.oci.peerRPSRepo.commit}`),
         cmdInRepo(`mkdir ./cert`),
         cmdInRepo(`cat > ./config/default.yml << HEREDOC_EOF\n${rpsConfigContents}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ./config/apache/vhosts.conf << HEREDOC_EOF\n${apacheConfigContents}\nHEREDOC_EOF`),

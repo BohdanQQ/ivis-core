@@ -53,6 +53,13 @@ oci:
   compartmentId: null
   tenancyId: null
   credsPath: 
+# repositories and commits of the jobs scheduling and running software on pool peers 
+  peerRJRRepo:
+    url: https://github.com/BohdanQQ/ivis-remote-job-runner.git
+    commit: e710f800bf7b9fe3c7e1c2b671bbd09466b92ffe
+  peerRPSRepo:
+    url: https://github.com/BohdanQQ/ivis-remote-pool-scheduler
+    commit: 0c677cd4d8b3a1e59380446b84b9f2a588f2a02a
 
 # expected ssh key pair used for SSH communication originating from 
 # this IVIS-core instace
