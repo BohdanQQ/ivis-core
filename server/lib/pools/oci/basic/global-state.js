@@ -89,17 +89,18 @@ async function addGatewayToVcnRouteTable(vcnId, gatewayId) {
 }
 
 async function createSecurityList(vcnId) {
-    const getPortRange = (port) => { return { max: port, min: port }; };
-    const getInRule = (port) => {
+    const getPortRange = (min, max) => { return { max, min }; };
+    const getInRule = (min, max) => {
+        max = max === undefined ? min : max;
         return {
             source: '0.0.0.0/0',
             protocol: "6",
             tcpOptions: {
-                destinationPortRange: getPortRange(port),
+                destinationPortRange: getPortRange(min, max),
             }
         };
     };
-    const inRules = [getInRule(22), getInRule(80), getInRule(443)];
+    const inRules = [getInRule(22), getInRule(80), getInRule(443), getInRule(10327, 10330)];
     const outRules = [{
         destination: '0.0.0.0/0',
         protocol: "all",
