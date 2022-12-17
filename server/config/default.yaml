@@ -61,6 +61,11 @@ oci:
     url: https://github.com/BohdanQQ/ivis-remote-pool-scheduler
     commit: 0c677cd4d8b3a1e59380446b84b9f2a588f2a02a
 
+slurm:
+  utilsRepo:
+    url: https://github.com/BohdanQQ/ivis-isolated-runner-utils
+    commit: 3b218d6fc3130fd1214ca9b00bb1e79942d4689b
+
 # expected ssh key pair used for SSH communication originating from 
 # this IVIS-core instace
 ssh:
