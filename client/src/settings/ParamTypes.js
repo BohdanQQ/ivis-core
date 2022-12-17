@@ -180,6 +180,25 @@ export default class ParamTypes {
             upcast: upcastString
         };
 
+        this.paramTypes.password = {
+            adopt: adoptString,
+            setFields: setStringFieldFromParam,
+            getParams: getParamsFromField,
+            validate: (prefix, spec, state) => {
+                const formId = this.getParamFormId(prefix, spec.id);
+                const val = state.getIn([formId, 'value']);
+
+                if ((spec.isRequired && val.trim() === '')) {
+                    state.setIn([formId, 'error'], t('Input is required'));
+                }
+            },
+            render: (self, prefix, spec, disabled) => <InputField key={spec.id}
+                                                                  id={this.getParamFormId(prefix, spec.id)}
+                                                                  type='password'
+                                                                  label={spec.label} help={spec.help}
+                                                                  disabled={disabled}/>,
+            upcast: upcastString
+        };
 
         this.paramTypes.integer = {
             adopt: adoptString,
