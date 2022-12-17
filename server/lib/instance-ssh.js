@@ -20,15 +20,30 @@ function getPrivateSSHKey() {
     return fs.readFileSync(PRIVATE_KEY_PATH);
 }
 
+function getConnectionDescription(host, port, username, password) {
+    let connectionDescription = {
+        host,
+        port,
+        username,
+        privateKey: getPrivateSSHKey()
+    };
+    if (password !== null || password !== undefined) {
+        connectionDescription.password = password;
+    }
+    return connectionDescription;
+}
+
 /**
  * 
  * @param {String} command 
  * @param {String} host 
  * @param {Number} port 
  * @param {String} username 
+ * @param {String?} password 
  * @returns {Promise<{stdout: [String], stderr: [String], error: Error | undefined}>}
  */
-async function executeCommand(command, host, port, username) {
+async function executeCommand(command, host, port, username, password) {
+    const connectionDescription = getConnectionDescription(host, port, username, password);
     return new Promise((resolve, reject) => {
         const conn = new Client();
         let stdout = [];
@@ -65,12 +80,7 @@ async function executeCommand(command, host, port, username) {
                     error: new Error(`Cannot connect: ${message}`)
                 });
             })
-                .connect({
-                    host,
-                    port,
-                    username,
-                    privateKey: getPrivateSSHKey()
-                });
+                .connect(connectionDescription);
         } catch (err) {
             reject({
                 stdout,
@@ -103,6 +113,34 @@ async function canMakeSSHConnectionTo(host, port, username) {
     });
 }
 
+async function uploadFile(localPath, remotePath, host, port, username, password) {
+    let connectionDescription = getConnectionDescription(host, port, username, password);
+    return new Promise((resolve, reject) => {
+        const conn = new Client();
+        try {
+            conn.on('ready', () => {
+                conn.sftp((err, sftp) => {
+                    if (err) throw err;
+                    sftp.fastPut(localPath, remotePath, (err) => {
+                      conn.end();
+                      if (err) throw err;
+                      resolve();
+                    });
+                });
+            }).on('error', (message) => {
+                reject({
+                    error: new Error(`Cannot connect: ${message}`)
+                });
+            })
+                .connect(connectionDescription);
+        } catch (err) {
+            reject({
+                error: err
+            });
+        }
+    });
+}
+
 module.exports = {
-    getPublicSSHKey, executeCommand, canMakeSSHConnectionTo
+    getPublicSSHKey, executeCommand, canMakeSSHConnectionTo, uploadFile
 }
