@@ -18,7 +18,8 @@ const MachineTypes = {
     LOCAL: 'local',
     REMOTE_RUNNER_AGENT: 'agent',
     OCI_BASIC: 'oci_basic',
-    REMOTE_POOL: 'remote_pool'
+    REMOTE_POOL: 'remote_pool',
+    SLURM_POOL: 'slurm'
 };
 Object.freeze(MachineTypes);
 
@@ -85,7 +86,33 @@ const MachineTypeParams = {
         'label': 'Port',
         'help': 'the port the Remote Job Runner is available on',
         'type': 'integer',
-    }]
+    }],
+    [MachineTypes.SLURM_POOL]: [
+    {
+        'id': 'hostname',
+        'label': 'Hostname',
+        'help': 'The Slurm Frontend Hostname',
+        'type': 'string',
+    },
+    {
+        'id': 'port',
+        'label': 'Port',
+        'help': 'the SSH port to use',
+        'type': 'integer',
+    },
+    {
+        'id': 'username',
+        'label': 'Username',
+        'help': 'the username to use when logging with SSH',
+        'type': 'string',
+    },
+    {
+        'id': 'password',
+        'label': 'Password',
+        'help': 'Password to use when logging in',
+        'type': 'password',
+    },
+    ],
 }
 Object.freeze(MachineTypeParams);
 
@@ -100,6 +127,7 @@ const GlobalExecutorStateDefaults = {
     [MachineTypes.LOCAL]: {},
     [MachineTypes.REMOTE_RUNNER_AGENT]: {},
     [MachineTypes.REMOTE_POOL]: {},
+    [MachineTypes.SLURM_POOL]: {},
     [MachineTypes.OCI_BASIC]: {
         'ipsUsed': [],
         'vcn': null,
@@ -114,6 +142,7 @@ const ExecutorStateDefaults = {
     [MachineTypes.LOCAL]: {},
     [MachineTypes.REMOTE_RUNNER_AGENT]: {},
     [MachineTypes.REMOTE_POOL]: {},
+    [MachineTypes.SLURM_POOL]: {},
     [MachineTypes.OCI_BASIC]: {
         'subnetId': null,
         'subnetMask': null,

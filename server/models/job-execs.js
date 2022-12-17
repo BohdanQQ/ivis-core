@@ -20,6 +20,7 @@ const {
     getVcn
 } = require('../lib/pools/oci/basic/global-state');
 const { createOCIBasicPool } = require('../lib/pools/oci/basic/oci-basic');
+const slurm = require('../lib/pools/slurm/slurm');
 
 const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
@@ -150,6 +151,25 @@ const executorInitializer = {
         // impl: ping pool members on remote executor ports
         // set status READY
         // on excpetion set status false
+    },
+    [MachineTypes.SLURM_POOL]: async (filteredEntity, tx) => {
+        (async () => {
+            let error = null;
+            try {
+                log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
+                await slurm.createSlurmPool(filteredEntity, () => generateCertificates(filteredEntity, '10.0.0.1', filteredEntity.parameters.hostname, null));
+            } catch (err) {
+                error = err.error ? err.error : err;
+            } finally {
+                if (error === null) {
+                    await updateExecStatus(filteredEntity.id, ExecutorStatus.READY);
+                    return;
+                }
+                await logErrorToExecutor(filteredEntity.id, "Cannot create SLURM pool", error);
+                log.error(error);
+                await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
+            }
+        })()
     }
 };
 
@@ -259,6 +279,10 @@ const executorDestructor = {
     [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => { },
     [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
         await registerPoolRemoval({ subnetMask: filteredEntity.state.subnetMask });
+    },
+    [MachineTypes.SLURM_POOL]: async () => {
+        // TODO
+        console.log('remove pool SLURM');
     }
 }
 

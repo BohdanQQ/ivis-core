@@ -6,5 +6,6 @@ export function getChoosableExecutorTypes(t) {
         [MachineTypes.REMOTE_RUNNER_AGENT]: t('Remote Job Runner'),
         [MachineTypes.OCI_BASIC]: t('Homogenous Oracle Cloud Infrastructure Pool'),
         [MachineTypes.REMOTE_POOL]: t('Raw remote pool scheduler'),
+        [MachineTypes.SLURM_POOL]: t('SLURM-based pool')
     }
 }

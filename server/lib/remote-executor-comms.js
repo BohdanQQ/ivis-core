@@ -3,10 +3,11 @@
 const axios = require('axios');
 const https = require('https');
 const knex = require('./knex');
-const { MachineTypes } = require('../../shared/remote-run');
+const { MachineTypes, RemoteRunState } = require('../../shared/remote-run');
 const remoteCerts = require('./remote-certificates');
 const archiver = require('../lib/task-archiver');
 const { RPS_PUBLIC_PORT } = require('./pools/oci/basic/rjr-setup');
+const slurm = require('../lib/pools/slurm/slurm');
 
 const httpsAgent = new https.Agent({
     ca: remoteCerts.getRemoteCACert(),
@@ -35,6 +36,12 @@ const remoteExecutorHandlers = {
         stop: handleRJRStop,
         getStatus: handleRJRStatus,
         removeRun: handleRJRRemove,
+    },
+    [MachineTypes.SLURM_POOL]: {
+        run: handleSlurmRun,
+        stop: handleSlurmStop,
+        getStatus: handleSlurmStatus,
+        removeRun: handleSlurmRemove,
     }
 }
 Object.freeze(remoteExecutorHandlers);
@@ -98,6 +105,38 @@ async function handleRJRRemove(executionMachine, runId) {
 
 async function handleRJRStatus(executionMachine, runId) {
     return await httpsClient.get(`${getMachineURLBase(executionMachine)}/run/${runId}`, { timeout: commsTimeoutMs }).then(resp => resp.data);
+}
+
+async function handleSlurmRun(executionMachine, runId, jobId, spec) {
+    const taskId = (await knex('jobs').where('id', jobId).first()).task;
+    const task = await knex('tasks').where('id', taskId).first();
+    const runRequest = {
+        params: spec.params || {},
+        entities: spec.entities,
+        owned: spec.owned,
+        accessToken: spec.accessToken,
+        state: spec.state,
+        jobId: jobId,
+        runId: runId,
+        taskId: task.id
+    };
+    console.log('run task settings', task.settings)
+    await slurm.run(executionMachine, archiver.getTaskArchivePath(taskId), runRequest, task.type, JSON.parse(task.settings).subtype);
+}
+
+async function handleSlurmStop(executionMachine, runId) {
+    await slurm.stop(executionMachine, runId);
+}
+
+async function handleSlurmRemove(executionMachine, runId) {
+    await slurm.removeRun(executionMachine, runId);
+}
+
+async function handleSlurmStatus(executionMachine, runId) {
+    const state = await slurm.status(executionMachine, runId);
+    return {
+        status: state ? state : RemoteRunState.RUN_FAIL
+    };
 }
 
 /**
