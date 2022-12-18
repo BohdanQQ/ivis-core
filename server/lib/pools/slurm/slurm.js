@@ -37,12 +37,9 @@ class CacheRecord {
     async isValid(cacheValidityGuard) {
         const cacheRecordPath = this.taskPaths.cacheRecordPath();
         const notCachedExpectedOutput = 'notcached';
-        const {
-            stdout
-        } = await this.commandExecutor(`( [ -f ${cacheRecordPath} ] && [ $(grep -e ^${cacheValidityGuard}$ ${cacheRecordPath}) = "${cacheValidityGuard}" ] ) || echo ${notCachedExpectedOutput}`);
+        const output = await getCommandOutput(this.commandExecutor, `( [ -f ${cacheRecordPath} ] && [ $(grep -e ^${cacheValidityGuard}$ ${cacheRecordPath}) = "${cacheValidityGuard}" ] ) || echo ${notCachedExpectedOutput}`);
         // ^^^^^ checks file exists and contains exactly the guard - prints notCachedExpectedOutput if NOT cached ^^^^^
-        console.log('valid out: ', stdout.join('\n').trim());
-        return stdout.join('\n').trim() != notCachedExpectedOutput;
+        return output != notCachedExpectedOutput;
     }
 
     async remove() {
@@ -71,9 +68,13 @@ function commanderFromExecutor(executor) {
     return createSlurmSSHCommander(hostname, port, username, password);
 }
 
+async function getCommandOutput(executor, command) {
+    return (await executor(command)).stdout.join('\n').trim();
+}
+
 async function getIdMapping(runPaths, commandExecutor) {
     try {
-        return (await commandExecutor(`cat ${runPaths.idMappingPath()}`)).stdout.join('\n').trim();
+        return await getCommandOutput(commandExecutor, `cat ${runPaths.idMappingPath()}`);
 
     }
     catch (err) {
@@ -112,14 +113,23 @@ const taskTypeRunCommand = {
             config.tasks.maxRunOutputBytes,
             1, // buffering time in seconds
             `${config.www.trustedUrlBase}/rest/remote/emit`,
-            getOutputEventType(runId)
+            getOutputEventType(runId),
+            getFailEventType(runId),
+            getSuccessEventType(runId),
+            `${config.www.trustedUrlBase}/rest/remote/status`,
+            RemoteRunState.RUN_FAIL,
+            RemoteRunState.SUCCESS,
+            taskPaths.execPaths.certPath(),
+            taskPaths.execPaths.certKeyPath(),
+            runId
         ].join(' ');
         const runnerScriptArgs = [
             taskPaths.taskDirectory(),
             runPaths.inputsPath(),
             taskPaths.execPaths.buildOutputPath(buildSlurmId),
             taskPaths.execPaths.buildFailInformantScriptPath(),
-            getFailEventType(runId)
+            getFailEventType(runId), 
+            runId
         ].join(' ');
         const runnerScript = scriptSetup[TaskType.PYTHON].run.pathGetter(taskPaths.execPaths);
         return `${runnerScript} ${runnerScriptArgs} ${pythonRunnerArgs} > ${runPaths.idMappingPath()}`;
@@ -171,7 +181,7 @@ async function createRunInput(taskPaths, runPaths, runConfig, commandExecutor) {
 
 async function runImpl(taskPaths, runPaths, config, taskType, commandExecutor, buildDependency, outputCheckId) {
     await createRunInput(taskPaths, runPaths, config, commandExecutor)
-    const dependencyOption = buildDependency ? ` --dependency=after:${buildDependency} ` : ' ';
+    const dependencyOption = buildDependency ? ` --dependency=afterany:${buildDependency} ` : ' ';
     const command = `sbatch${dependencyOption}--job-name=${getRunJobSlurmName(config.runId)} --parsable ${taskTypeRunCommand[taskType](taskPaths, runPaths, config.runId, outputCheckId)}`;
     await commandExecutor(command);
     return;
@@ -199,7 +209,7 @@ async function run(executor, archivePath, config, type, subtype) {
 }
 
 async function getHomeDir(commandExecutor) {
-    return (await commandExecutor(`echo ~`)).stdout.join('\n').trim();
+    return await getCommandOutput(commandExecutor, `echo ~`);
 }
 
 async function build(taskPaths, type, subtype, archivePath, commandExecutor, executor) {
@@ -215,13 +225,13 @@ async function build(taskPaths, type, subtype, archivePath, commandExecutor, exe
     await commandExecutor(`rm -f ${remoteArchivePath}`);
 
     const initCmd = `sbatch --parsable ${taskTypeInitCommand[type](taskPaths, subtype)}`;
-    const buildId = (await commandExecutor(initCmd)).stdout.join('\n').trim();
+    const buildId = await getCommandOutput(commandExecutor, initCmd);
     if (buildId.match(/^[0-9]+$/g) === null) {
         throw new Error(`Build job slurm ID was invalid: ${buildId}`);
     }
 
     // cleanup after build
-    const jobId = (await commandExecutor(`sbatch --parasble --output=/dev/null --dependency=after:${buildId} ${taskPaths.execPaths.buildOutputCleanScriptPath()} ${taskPaths.execPaths.buildOutputPath(buildId)}`));
+    const jobId = await getCommandOutput(commandExecutor, `sbatch --parsable --output=/dev/null --dependency=afterany:${buildId} ${taskPaths.execPaths.buildOutputCleanScriptPath()} ${taskPaths.execPaths.buildOutputPath(buildId)}`);
     if (jobId.match(/^[0-9]+$/g) === null) {
         throw new Error(`Build job slurm ID was invalid: ${jobId}`);
     }
@@ -242,8 +252,8 @@ async function removeRun(executor, runId) {
     const commandExecutor = commanderFromExecutor(executor);
     const execPaths = new ExecutorPaths(executor.id);
     const runPaths = new RunPaths(execPaths, runId);
-    await commandExecutor(`rm -f ${runPaths.inputsPath()} ${runPaths.idMappingPath()}`);
     const jobId = await getIdMapping(runPaths, commandExecutor);
+    await commandExecutor(`rm -f ${runPaths.inputsPath()} ${runPaths.idMappingPath()}`);
     if (jobId !== null) {
         await commandExecutor(`rm -f ${runPaths.slurmOutputsPath(jobId)}`);
     }
@@ -266,7 +276,7 @@ const slurmStateToIvisState = {
 
 async function getRunSqueueStatus(slurmId, commandExecutor) {
     try {
-        const squeueState = (await commandExecutor(`squeue --job ${slurmId} -o "%t" | sed -n 2p`)).stdout.join('\n').trim();
+        const squeueState = await getCommandOutput(commandExecutor, `squeue --job ${slurmId} -o "%t" | sed -n 2p`);
         const ivisState = slurmStateToIvisState[squeueState];
         return ivisState === undefined ? null : ivisState;
     } catch (err) {
@@ -279,7 +289,7 @@ async function resolveFinishedState(runPaths, slurmId, commandExecutor) {
     const getStatusCodeCommand = `cat ${runPaths.slurmOutputsPath(slurmId)} | tail -n 1`;
     let lastOutputLine = null;
     try {
-        lastOutputLine = (await commandExecutor(getStatusCodeCommand)).stdout.join('\n').trim();
+        lastOutputLine = await getCommandOutput(commandExecutor, getStatusCodeCommand);
     }
     catch (err) {
         // TODO make sure request is repeated, log error
@@ -347,7 +357,8 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     commands.push(`chmod u+x ${execPaths.buildOutputCleanScriptPath()}`);
 
     commands.push(`cat > ${execPaths.buildFailInformantScriptPath()} << HEREDOC_EOF\n${scripts.buildFailInformantScript(
-        execPaths.certKeyPath(), execPaths.certPath(), config.oci.ivisSSLCertVerifiableViaRootCAs, execPaths.caPath()
+        // TODO add the fail emit here and remove it as a script $1 param
+        execPaths.certKeyPath(), execPaths.certPath(), execPaths.caPath(), `${config.www.trustedUrlBase}/rest/remote/emit`, `${config.www.trustedUrlBase}/rest/remote/status`, RemoteRunState.RUN_FAIL
     )}\nHEREDOC_EOF`);
     commands.push(`chmod u+x ${execPaths.buildFailInformantScriptPath()}`);
 
