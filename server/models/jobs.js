@@ -400,6 +400,9 @@ async function getRunExecutor(runId) {
     .where('job_runs.id', runId)
     .first()
     );
+    if (job === null || job === undefined) {
+        return null;
+    }
     return await getExecutorById(contextHelpers.getAdminContext(), job.executor_id, false);
 }  
 

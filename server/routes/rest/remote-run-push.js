@@ -118,6 +118,7 @@ router.postAsync('/remote/status', async (req, res) => {
     // errors and output can be undefined
     if (!hasOwnProperties(req.body, ['runId', 'status'])) {
         res.status(400);
+        log.info(LOG_ID, 'status request is invalid: ', req.body);
         res.json({});
         return;
     }
@@ -132,6 +133,12 @@ router.postAsync('/remote/status', async (req, res) => {
     }
 
     const executor = await jobs.getRunExecutor(runId);
+    if (!executor) {
+        res.status(403);
+        log.info(LOG_ID, `Unknown job/run with runId ${runId}`);
+        res.json({});
+        return;
+    }
     if (executor.cert_serial !== certSerial.toString()) {
         res.status(403);
         log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to manipulate status of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
@@ -215,6 +222,13 @@ async function emitExecutorCheck(type, data, certSerial, res) {
         executor = await jobs.getRunExecutor(runId);
     }
 
+    if (!executor) {
+        res.status(400);
+        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} does not exist`);
+        res.json({});
+        return false;
+    }
+
     if (executor.cert_serial !== certSerial.toString()) {
         res.status(403);
         log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to emit an event on behalf of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
@@ -233,6 +247,7 @@ router.postAsync('/remote/emit', async (req, res) => {
     // data can be undefined (success)
     if (!hasOwnProperties(req.body, ['type'])) {
         res.status(400);
+        log.info(LOG_ID, 'emit request is missing type: ', req.body);
         res.json({});
         return;
     }

@@ -400,6 +400,10 @@ async function cleanRuns() {
     if (runs) {
         for (const run of runs) {
             const remoteExec = await getRunExecutor(run.id);
+            if (!remoteExec) {
+                log.error(LOG_ID, `Failed to clear run with id ${run.id}: executor not found`);
+                return
+            }
             // uninitialized jobs can't have been run 
             if (run.status !== RunStatus.INITIALIZATION && remoteExec.type !== MachineTypes.LOCAL) {
                 const handler = remoteComms.getRemoteHandler(remoteExec.type);
