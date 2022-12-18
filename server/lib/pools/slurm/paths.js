@@ -43,8 +43,20 @@ class ExecutorPaths {
         return this._inRoot('/outputs');
     }
 
-    outputSbatchFormatPath() {
-        return this._inRoot('/IVIS-run-%j-%x.out');
+    _outputsDirectoryWithHomeDir(homedir) {
+        return `${this.rootDirectoryWithHomeDir(homedir)}/outputs`;
+    }
+
+    outputSbatchFormatPath(homedir) {
+        return `${this._outputsDirectoryWithHomeDir(homedir)}/IVIS-run-%j-%x.out`;
+    }
+
+    buildOutputSbatchFormatPath(homedir) {
+        return `${this._outputsDirectoryWithHomeDir(homedir)}/IVIS-build-%j.out`;
+    }
+
+    buildOutputPath(slurmJobId) {
+        return `${this.outputsDirectory()}/IVIS-build-${slurmJobId}.out`;
     }
 
     inputsDirectory() {
@@ -64,7 +76,15 @@ class ExecutorPaths {
     }
 
     ivisPackageDirectory() {
-        return `${this.remoteUtilsRepoDirectory()}/ivis`;
+        return `${this.remoteUtilsRepoDirectory()}/python-package`;
+    }
+
+    buildOutputCleanScriptPath() {
+        return `${this.remoteUtilsRepoDirectory()}/__build_clean.sh`;
+    }
+
+    buildFailInformantScriptPath() {
+        return `${this.remoteUtilsRepoDirectory()}/__build_fail_informant.sh`;
     }
 };
 
