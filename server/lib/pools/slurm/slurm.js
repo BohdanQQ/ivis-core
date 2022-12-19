@@ -96,8 +96,7 @@ async function createRunInput(taskPaths, runPaths, runConfig, commandExecutor) {
         certPath: taskPaths.execPaths.certPath(),
         keyPath: taskPaths.execPaths.certKeyPath(),
         es: {
-            host: config.elasticsearch.host,
-            port: config.elasticsearch.port,
+            urlBase: `${config.www.remoteElasticsearchBase}`,
         },
         server: {
             trustedUrlBase: `${config.www.trustedUrlBase}`,
