@@ -102,6 +102,7 @@ async function createRunInput(taskPaths, runPaths, runConfig, commandExecutor) {
             trustedUrlBase: `${config.www.trustedUrlBase}`,
             sandboxUrlBase: `${config.www.sandboxUrlBase}`,
             trustedEmitPath: '/rest/remote/emit',
+            trustedRunRequestPath: '/rest/remote/runRequest'
         },
         state: runConfig.state,
     };
