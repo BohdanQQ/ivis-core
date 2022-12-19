@@ -1,32 +1,17 @@
 const crypto = require('crypto');
+const fs = require('fs');
 const log = require('../../log');
 const ssh = require('../../instance-ssh');
-const LOG_ID = 'slurm-pool';
-const { TaskType, PythonSubtypes, defaultSubtypeKey } = require('../../../../shared/tasks');
+const { TaskType, defaultSubtypeKey } = require('../../../../shared/tasks');
 const config = require('../../config');
 const scripts = require('./setup');
-const { EventTypes, emitter, getSuccessEventType, getOutputEventType, getFailEventType } = require('../../task-events');
 const {
-    ExecutorPaths, TaskPaths, RunPaths
+    ExecutorPaths, TaskPaths, RunPaths,
 } = require('./paths');
 const { RemoteRunState } = require('../../../../shared/remote-run');
+const certs = require('../../remote-certificates');
 
-// TODO export from 1 place (python-handler also uses these)
-const defaultPythonLibs = ['elasticsearch6', 'requests'];
-const ptyhonTaskSubtypeSpecs = {
-    [defaultSubtypeKey]: {
-        libs: [...defaultPythonLibs],
-    },
-    [PythonSubtypes.ENERGY_PLUS]: {
-        libs: [...defaultPythonLibs, 'eppy', 'requests'],
-    },
-    [PythonSubtypes.NUMPY]: {
-        libs: [...defaultPythonLibs, 'numpy', 'dtw'],
-    },
-    [PythonSubtypes.PANDAS]: {
-        libs: [...defaultPythonLibs, 'pandas'],
-    },
-};
+const LOG_ID = 'slurm-pool';
 
 class CacheRecord {
     constructor(commandExecutor, executorId, taskId) {
@@ -39,7 +24,7 @@ class CacheRecord {
         const notCachedExpectedOutput = 'notcached';
         const output = await getCommandOutput(this.commandExecutor, `( [ -f ${cacheRecordPath} ] && [ $(grep -e ^${cacheValidityGuard}$ ${cacheRecordPath}) = "${cacheValidityGuard}" ] ) || echo ${notCachedExpectedOutput}`);
         // ^^^^^ checks file exists and contains exactly the guard - prints notCachedExpectedOutput if NOT cached ^^^^^
-        return output != notCachedExpectedOutput;
+        return output !== notCachedExpectedOutput;
     }
 
     async remove() {
@@ -51,20 +36,20 @@ class CacheRecord {
         const command = `echo ${cacheValidityGuard} > ${this.taskPaths.cacheRecordPath()}`;
         await this.commandExecutor(command);
     }
-};
-
+}
 
 function createSlurmSSHCommander(host, port, username, password) {
-    // TODO wrap with slurm calls (but not here - find scancel ... )
     log.verbose(LOG_ID, `creating SSH commander for ${username}@${host}:${port}`);
     return async (command) => {
         log.verbose(LOG_ID, `$> ${command}`);
-        return await ssh.executeCommand(command, host, port, username, password)
+        return ssh.executeCommand(command, host, port, username, password);
     };
 }
 
 function commanderFromExecutor(executor) {
-    const { hostname, port, username, password } = executor.parameters;
+    const {
+        hostname, port, username, password,
+    } = executor.parameters;
     return createSlurmSSHCommander(hostname, port, username, password);
 }
 
@@ -75,27 +60,11 @@ async function getCommandOutput(executor, command) {
 async function getIdMapping(runPaths, commandExecutor) {
     try {
         return await getCommandOutput(commandExecutor, `cat ${runPaths.idMappingPath()}`);
-
-    }
-    catch (err) {
+    } catch (err) {
         return null;
     }
 }
 
-const scriptSetup = {
-    [TaskType.PYTHON]: {
-        'run': {
-            'pathGetter': (executorPaths) => `${executorPaths.remoteUtilsRepoDirectory()}/__python_start.sh`,
-            'contentCreator': scripts.getPythonRunScript
-        },
-        'init': {
-            'pathGetter': (executorPaths) => `${executorPaths.remoteUtilsRepoDirectory()}/__python_init.sh`,
-            'contentCreator': scripts.getPythonTaskInitScript
-        }
-    }
-};
-
-const fs = require('fs');
 function getArchiveHash(archivePath, type, subtype) {
     const HASH_INPUT_ENCODING = 'utf-8';
     const HASH_OUTPUT_ENCODING = 'hex';
@@ -106,50 +75,12 @@ function getArchiveHash(archivePath, type, subtype) {
         .digest(HASH_OUTPUT_ENCODING);
 }
 
-// TODO PATHS, maybe use inheritance?
-const taskTypeRunCommand = {
-    [TaskType.PYTHON]: (taskPaths, runPaths, runId, buildSlurmId) => {
-        const pythonRunnerArgs = [
-            config.tasks.maxRunOutputBytes,
-            1, // buffering time in seconds
-            `${config.www.trustedUrlBase}/rest/remote/emit`,
-            getOutputEventType(runId),
-            getFailEventType(runId),
-            getSuccessEventType(runId),
-            `${config.www.trustedUrlBase}/rest/remote/status`,
-            RemoteRunState.RUN_FAIL,
-            RemoteRunState.SUCCESS,
-            taskPaths.execPaths.certPath(),
-            taskPaths.execPaths.certKeyPath(),
-            runId
-        ].join(' ');
-        const runnerScriptArgs = [
-            taskPaths.taskDirectory(),
-            runPaths.inputsPath(),
-            taskPaths.execPaths.buildOutputPath(buildSlurmId),
-            taskPaths.execPaths.buildFailInformantScriptPath(),
-            getFailEventType(runId), 
-            runId
-        ].join(' ');
-        const runnerScript = scriptSetup[TaskType.PYTHON].run.pathGetter(taskPaths.execPaths);
-        return `${runnerScript} ${runnerScriptArgs} ${pythonRunnerArgs} > ${runPaths.idMappingPath()}`;
-    }
-};
-
-const taskTypeInitCommand = {
-    [TaskType.PYTHON]: (taskPaths, subtype) => `${scriptSetup[TaskType.PYTHON].init.pathGetter(taskPaths.execPaths)} ${taskPaths.taskDirectory()} ${ptyhonTaskSubtypeSpecs[subtype].libs.join(' ')}`
-};
-
-function getRunJobSlurmName(runId) {
-    return `${runId}`;
-}
-
 /**
- * 
- * @param {TaskPaths} taskPaths 
- * @param {RunPaths} runPaths 
- * @param {*} runConfig 
- * @param {*} commandExecutor 
+ *
+ * @param {TaskPaths} taskPaths
+ * @param {RunPaths} runPaths
+ * @param {*} runConfig
+ * @param {*} commandExecutor
  */
 async function createRunInput(taskPaths, runPaths, runConfig, commandExecutor) {
     const realRunConfig = {
@@ -171,51 +102,56 @@ async function createRunInput(taskPaths, runPaths, runConfig, commandExecutor) {
         server: {
             trustedUrlBase: `${config.www.trustedUrlBase}`,
             sandboxUrlBase: `${config.www.sandboxUrlBase}`,
-            trustedEmitPath: '/rest/remote/emit'
+            trustedEmitPath: '/rest/remote/emit',
         },
         state: runConfig.state,
     };
     const inputFileContents = `${JSON.stringify(realRunConfig)}\n`;
-    await commandExecutor(`cat > ${runPaths.inputsPath()} << HEREDOC_EOF\n${inputFileContents}\nHEREDOC_EOF`);
+
+    await commandExecutor(scripts.createFileCommand(runPaths.inputsPath(), inputFileContents));
 }
 
-async function runImpl(taskPaths, runPaths, config, taskType, commandExecutor, buildDependency, outputCheckId) {
-    await createRunInput(taskPaths, runPaths, config, commandExecutor)
+function getRunJobSlurmName(runId) {
+    return `${runId}`;
+}
+
+async function runImpl(taskPaths, runPaths, runConfig, taskType, commandExecutor, buildDependency, outputCheckId) {
+    await createRunInput(taskPaths, runPaths, runConfig, commandExecutor);
     const dependencyOption = buildDependency ? ` --dependency=afterany:${buildDependency} ` : ' ';
-    const command = `sbatch${dependencyOption}--job-name=${getRunJobSlurmName(config.runId)} --parsable ${taskTypeRunCommand[taskType](taskPaths, runPaths, config.runId, outputCheckId)}`;
+    const command = `sbatch${dependencyOption}--job-name=${getRunJobSlurmName(runConfig.runId)} --parsable ${scripts.getRunScriptInvocation(taskType, taskPaths, runConfig.runId, runPaths, outputCheckId)} > ${runPaths.idMappingPath()}`;
     await commandExecutor(command);
-    return;
 }
 
-async function run(executor, archivePath, config, type, subtype) {
-    subtype = subtype ? subtype : defaultSubtypeKey;
+async function run(executor, archivePath, runConfig, type, subtype) {
+    const toUseSubtype = subtype || defaultSubtypeKey;
     const execPaths = new ExecutorPaths(executor.id);
-    const taskPaths = new TaskPaths(execPaths, config.taskId);
-    const runPaths = new RunPaths(execPaths, config.runId);
+    const taskPaths = new TaskPaths(execPaths, runConfig.taskId);
+    const runPaths = new RunPaths(execPaths, runConfig.runId);
 
-    const archiveHash = getArchiveHash(archivePath, type, subtype);
+    const archiveHash = getArchiveHash(archivePath, type, toUseSubtype);
     const commandExecutor = commanderFromExecutor(executor);
-    const cacheRecord = new CacheRecord(commandExecutor, executor.id, config.taskId);
+    const cacheRecord = new CacheRecord(commandExecutor, executor.id, runConfig.taskId);
     let waitForId = null;
-    let checkOutputId = null
+    let checkOutputId = null;
     if (!(await cacheRecord.isValid(archiveHash))) {
         await cacheRecord.remove();
-        [waitForId, checkOutputId] = await build(taskPaths, type, subtype, archivePath, commandExecutor, executor);
+        [waitForId, checkOutputId] = await build(taskPaths, type, toUseSubtype, archivePath, commandExecutor, executor);
         await cacheRecord.create(archiveHash);
     }
 
-    await runImpl(taskPaths, runPaths, config, type, commandExecutor, waitForId, checkOutputId);
-    return;
+    await runImpl(taskPaths, runPaths, runConfig, type, commandExecutor, waitForId, checkOutputId);
 }
 
 async function getHomeDir(commandExecutor) {
-    return await getCommandOutput(commandExecutor, `echo ~`);
+    return getCommandOutput(commandExecutor, 'echo ~');
 }
 
 async function build(taskPaths, type, subtype, archivePath, commandExecutor, executor) {
     const homedir = await getHomeDir(commandExecutor);
     const remoteArchivePath = `${taskPaths.taskDirectoryWithHomeDir(homedir)}/____taskarchive`;
-    const { hostname, port, username, password } = executor.parameters;
+    const {
+        hostname, port, username, password,
+    } = executor.parameters;
     log.info(LOG_ID, 'from: ', archivePath, ' to: ', remoteArchivePath);
     await commandExecutor(`mkdir -p ${taskPaths.taskDirectory()}`);
     await ssh.uploadFile(archivePath, remoteArchivePath, hostname, port, username, password);
@@ -224,14 +160,15 @@ async function build(taskPaths, type, subtype, archivePath, commandExecutor, exe
     await commandExecutor(unarchiveCmd);
     await commandExecutor(`rm -f ${remoteArchivePath}`);
 
-    const initCmd = `sbatch --parsable ${taskTypeInitCommand[type](taskPaths, subtype)}`;
+    const initCmd = `sbatch --parsable ${scripts.getInitScriptInvocation(type, taskPaths, subtype)}`;
     const buildId = await getCommandOutput(commandExecutor, initCmd);
     if (buildId.match(/^[0-9]+$/g) === null) {
         throw new Error(`Build job slurm ID was invalid: ${buildId}`);
     }
 
-    // cleanup after build
-    const jobId = await getCommandOutput(commandExecutor, `sbatch --parsable --output=/dev/null --dependency=afterany:${buildId} ${taskPaths.execPaths.buildOutputCleanScriptPath()} ${taskPaths.execPaths.buildOutputPath(buildId)}`);
+    // cleanup after SUCCESSFUL build
+    // if output is not cleared out, run script should detect that and report the run failure to IVIS-core
+    const jobId = await getCommandOutput(commandExecutor, `sbatch --parsable --output=/dev/null --dependency=afterany:${buildId} ${scripts.getBuildCleanInvocation(taskPaths, buildId)}`);
     if (jobId.match(/^[0-9]+$/g) === null) {
         throw new Error(`Build job slurm ID was invalid: ${jobId}`);
     }
@@ -260,18 +197,18 @@ async function removeRun(executor, runId) {
 }
 
 const slurmStateToIvisState = {
-    "CD": RemoteRunState.SUCCESS,
-    "CG": RemoteRunState.SUCCESS,
-    "CA": RemoteRunState.RUN_FAIL,
-    "F": RemoteRunState.RUN_FAIL,
-    "PD": RemoteRunState.QUEUED,
-    "PR": RemoteRunState.RUN_FAIL,
-    "R": RemoteRunState.RUNNING,
-    "S": RemoteRunState.RUN_FAIL,
-    "ST": RemoteRunState.RUN_FAIL,
-    "OOM": RemoteRunState.RUN_FAIL,
-    "TO": RemoteRunState.RUN_FAIL,
-    "NF": RemoteRunState.RUN_FAIL,
+    CD: RemoteRunState.SUCCESS,
+    CG: RemoteRunState.SUCCESS,
+    CA: RemoteRunState.RUN_FAIL,
+    F: RemoteRunState.RUN_FAIL,
+    PD: RemoteRunState.QUEUED,
+    PR: RemoteRunState.RUN_FAIL,
+    R: RemoteRunState.RUNNING,
+    S: RemoteRunState.RUN_FAIL,
+    ST: RemoteRunState.RUN_FAIL,
+    OOM: RemoteRunState.RUN_FAIL,
+    TO: RemoteRunState.RUN_FAIL,
+    NF: RemoteRunState.RUN_FAIL,
 };
 
 async function getRunSqueueStatus(slurmId, commandExecutor) {
@@ -285,13 +222,13 @@ async function getRunSqueueStatus(slurmId, commandExecutor) {
     }
 }
 
+// returns RemoteRunState of a finieshed job, null if status cannot be determined
 async function resolveFinishedState(runPaths, slurmId, commandExecutor) {
     const getStatusCodeCommand = `cat ${runPaths.slurmOutputsPath(slurmId)} | tail -n 1`;
     let lastOutputLine = null;
     try {
         lastOutputLine = await getCommandOutput(commandExecutor, getStatusCodeCommand);
-    }
-    catch (err) {
+    } catch (err) {
         // TODO make sure request is repeated, log error
         return null;
     }
@@ -299,14 +236,19 @@ async function resolveFinishedState(runPaths, slurmId, commandExecutor) {
     try {
         const statusCode = Number.parseInt(lastOutputLine, 10);
         return statusCode === 0 ? RemoteRunState.SUCCESS : RemoteRunState.RUN_FAIL;
-    }
-    catch {
-        log.error(LOG_ID, "Unexpected last line of run output. Expecting a number indicating the run exit code, got:", lastOutputLine);
+    } catch {
+        log.error(LOG_ID, 'Unexpected last line of run output. Expecting a number indicating the run exit code, got:', lastOutputLine);
     }
 
     return null;
 }
 
+/**
+ *
+ * @param {object} executor
+ * @param {number} runId
+ * @returns RemoteRunState of the run, null if the state cannot be determined (unknown/already finished run)
+ */
 async function status(executor, runId) {
     const commandExecutor = commanderFromExecutor(executor);
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
@@ -320,7 +262,7 @@ async function status(executor, runId) {
 
     const state = await getRunSqueueStatus(slurmJobId, commandExecutor);
     if (state === null) {
-        return await resolveFinishedState(runPaths, slurmJobId, commandExecutor);
+        return resolveFinishedState(runPaths, slurmJobId, commandExecutor);
     }
 
     return state;
@@ -330,37 +272,46 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     const utilsRepoURL = config.slurm.utilsRepo.url;
     const utilsRepoCommit = config.slurm.utilsRepo.commit;
     const execPaths = new ExecutorPaths(executorId);
+    // create required directories
     const commands = [execPaths.rootDirectory(), execPaths.tasksRootDirectory(), execPaths.certDirectory(), execPaths.cacheDirectory(),
-    execPaths.outputsDirectory(), execPaths.inputsDirectory()]
-        .map(path => `mkdir -p ${path}`);
-
-    [[execPaths.caPath(), certCA], [execPaths.certKeyPath(), certKey], [execPaths.certPath(), cert]].forEach(([path, contents]) =>
-        commands.push(`cat > ${path} << HEREDOC_EOF\n${contents}\nHEREDOC_EOF`));
-
+        execPaths.outputsDirectory(), execPaths.inputsDirectory()]
+        .map((path) => `mkdir -p ${path}`);
+    // inject certificates
+    [[execPaths.caPath(), certCA], [execPaths.certKeyPath(), certKey], [execPaths.certPath(), cert]].forEach(([path, contents]) => commands.push(scripts.createFileCommand(path, contents)));
+    // clone auxiliary repository providing basics for running jobs
     commands.push(...[
         `git clone ${utilsRepoURL} ${execPaths.remoteUtilsRepoDirectory()}`,
-        (utilsRepoCommit ? `cd ${execPaths.remoteUtilsRepoDirectory()} && git checkout ${utilsRepoCommit}` : 'echo using HEAD')
+        (utilsRepoCommit ? `cd ${execPaths.remoteUtilsRepoDirectory()} && git checkout ${utilsRepoCommit}` : 'echo using HEAD'),
     ]);
 
-    // TODO adapt for more task types... ( runner.py ??? )
-    // more TODO: adapt the ivis package paths for more task types
+    // creates standalone scripts for bulding, running & informing IVIS core of run fail in the case of failed build
     for (const taskType of [TaskType.PYTHON]) {
-        let scriptInfo = scriptSetup[taskType];
-        commands.push(`cat > ${scriptInfo.init.pathGetter(execPaths)} << HEREDOC_EOF\n${scriptInfo.init.contentCreator(execPaths.buildOutputSbatchFormatPath(homedir), execPaths.ivisPackageDirectory())}\nHEREDOC_EOF`);
-        commands.push(`chmod u+x ${scriptInfo.init.pathGetter(execPaths)}`);
-
-        commands.push(`cat > ${scriptInfo.run.pathGetter(execPaths)} << HEREDOC_EOF\n${scriptInfo.run.contentCreator(execPaths.outputSbatchFormatPath(homedir), `${execPaths.remoteUtilsRepoDirectory()}/runner.py`)}\nHEREDOC_EOF`);
-        commands.push(`chmod u+x ${scriptInfo.run.pathGetter(execPaths)}`);
+        /** INIT script
+         * - will be run via slurm => creates an output file
+         * - builds the taskType tasks
+         */
+        commands.push(...scripts.getScriptCreationCommands(taskType, scripts.ScriptTypes.INIT, execPaths, homedir));
+        /** RUN script
+         * - will be run via slurm => creates an output file (cleanup as part of runRemove call)
+         * - checks whether build failed and if so, calls BUILD FAIL INFORMANT and exits
+         * - otherwise runs a job of this taskType
+         * - output file can be examined to determine JOB success/fail (as part of the getStatus call)
+         */
+        commands.push(...scripts.getScriptCreationCommands(taskType, scripts.ScriptTypes.RUN, execPaths, homedir));
     }
-    // TODO - clean this mess
-    commands.push(`cat > ${execPaths.buildOutputCleanScriptPath()} << HEREDOC_EOF\n${scripts.getBuildOutputCleanScript()}\nHEREDOC_EOF`);
-    commands.push(`chmod u+x ${execPaths.buildOutputCleanScriptPath()}`);
-
-    commands.push(`cat > ${execPaths.buildFailInformantScriptPath()} << HEREDOC_EOF\n${scripts.buildFailInformantScript(
-        // TODO add the fail emit here and remove it as a script $1 param
-        execPaths.certKeyPath(), execPaths.certPath(), execPaths.caPath(), `${config.www.trustedUrlBase}/rest/remote/emit`, `${config.www.trustedUrlBase}/rest/remote/status`, RemoteRunState.RUN_FAIL
-    )}\nHEREDOC_EOF`);
-    commands.push(`chmod u+x ${execPaths.buildFailInformantScriptPath()}`);
+    /** BUILD CLEAN script
+     * - will be run via slurm after the INIT script (using slurm dependency configuration)
+     * - creates no output
+     * - examines build output and removes the build output if the build succeeded
+     * - otherwise does nothing => RUN script checks whether the build output exists (if yes, build failed)
+     */
+    commands.push(...scripts.getBuildCleanScriptCreationCommands(execPaths));
+    /** BUILD FAIL INFORMANT script
+     * - will be run by the RUN script when task build failed
+     * - informs IVIS-core of build/run failure, calls the emit and status endpoint with
+     *   proper data so that IVIS-core may terminate and clear the run
+     */
+    commands.push(...scripts.getBuildFailInformantScriptCreationCommands(execPaths));
 
     commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
     // waits for the result
@@ -368,18 +319,16 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     return commands;
 }
 
-const certs = require('../../remote-certificates');
 async function createSlurmPool(executor, certificateGeneratorFunction) {
     await certificateGeneratorFunction(null);
 
     const ca = certs.getRemoteCACert();
     const {
         cert,
-        key
+        key,
     } = certs.getExecutorCertKey(executor.id);
     const commander = commanderFromExecutor(executor);
     const commands = getPoolInitCommands(executor.id, ca, key, cert, await getHomeDir(commander));
-
 
     for (const command of commands) {
         await commander(command);
@@ -387,5 +336,5 @@ async function createSlurmPool(executor, certificateGeneratorFunction) {
 }
 
 module.exports = {
-    status, run, stop, removeRun, createSlurmPool
-}
+    status, run, stop, removeRun, createSlurmPool,
+};

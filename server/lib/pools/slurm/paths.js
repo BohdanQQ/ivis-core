@@ -1,11 +1,12 @@
 class ExecutorPaths {
     constructor(executorId) {
-        this.executorId = executorId
+        this.executorId = executorId;
     }
 
     _inRoot(path) {
         return `${this.rootDirectory()}${path}`;
     }
+
     // this thing exists only because the SFTP file transfer
     // DOES NOT expand ~ and neither does tar's --output option
     /**
@@ -75,7 +76,7 @@ class ExecutorPaths {
         return this._inRoot('/utils');
     }
 
-    ivisPackageDirectory() {
+    ivisPythonPackageDirectory() {
         return `${this.remoteUtilsRepoDirectory()}/python-package`;
     }
 
@@ -86,13 +87,13 @@ class ExecutorPaths {
     buildFailInformantScriptPath() {
         return `${this.remoteUtilsRepoDirectory()}/__build_fail_informant.sh`;
     }
-};
+}
 
 class TaskPaths {
     /**
-     * 
-     * @param {ExecutorPaths} executorPaths 
-     * @param {*} taskId 
+     *
+     * @param {ExecutorPaths} executorPaths
+     * @param {*} taskId
      */
     constructor(executorPaths, taskId) {
         this.execPaths = executorPaths;
@@ -100,11 +101,11 @@ class TaskPaths {
     }
 
     taskDirectory() {
-        return `${this.execPaths.tasksRootDirectory()}/${this.taskId}`
+        return `${this.execPaths.tasksRootDirectory()}/${this.taskId}`;
     }
 
     taskDirectoryWithHomeDir(homedir) {
-        return `${this.execPaths.tasksRootDirectoryWithHomeDir(homedir)}/${this.taskId}`
+        return `${this.execPaths.tasksRootDirectoryWithHomeDir(homedir)}/${this.taskId}`;
     }
 
     _cacheRecordName() {
@@ -118,8 +119,8 @@ class TaskPaths {
 
 class RunPaths {
     /**
-     * @param {ExecutorPaths} executorPaths 
-     * @param {*} runId 
+     * @param {ExecutorPaths} executorPaths
+     * @param {*} runId
      */
     constructor(executorPaths, runId) {
         this.execPaths = executorPaths;
@@ -140,5 +141,5 @@ class RunPaths {
 }
 
 module.exports = {
-    ExecutorPaths, TaskPaths, RunPaths
-}
+    ExecutorPaths, TaskPaths, RunPaths,
+};
