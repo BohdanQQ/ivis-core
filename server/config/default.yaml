@@ -64,7 +64,7 @@ oci:
 slurm:
   utilsRepo:
     url: https://github.com/BohdanQQ/ivis-isolated-runner-utils
-    commit: 3b218d6fc3130fd1214ca9b00bb1e79942d4689b
+    commit: ea7d0535dfbb339e1e101a3bc1a527c466f538f1
 
 # expected ssh key pair used for SSH communication originating from 
 # this IVIS-core instace
@@ -94,6 +94,7 @@ www:
 
   trustedUrlBase: https://localhost:8443
   sandboxUrlBase: https://localhost:8444
+  remoteElasticsearchBase: https://localhost:8446
 
   # Secret for signing the session ID cookie
   secret: jd8j3hf785hng783k
