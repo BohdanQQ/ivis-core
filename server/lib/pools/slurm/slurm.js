@@ -4,7 +4,7 @@ const log = require('../../log');
 const ssh = require('../../instance-ssh');
 const { TaskType, defaultSubtypeKey } = require('../../../../shared/tasks');
 const config = require('../../config');
-const scripts = require('./setup');
+const scripts = require('./scripts');
 const {
     ExecutorPaths, TaskPaths, RunPaths,
 } = require('./paths');
