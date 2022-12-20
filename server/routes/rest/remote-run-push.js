@@ -268,8 +268,9 @@ router.postAsync('/remote/runRequest', async (req, res) => {
         return;
     }
 
-    if (!hasOwnProperties(req.body, ['type', 'payload'])) {
+    if (!hasOwnProperties(req.body, ['type', 'payload']) || req.body.payload.jobId === undefined) {
         res.status(400);
+        log.info(LOG_ID, 'Invalid request body (missing type, payload or payload.jobId): ', req.body);
         res.json({});
         return;
     }
@@ -279,6 +280,13 @@ router.postAsync('/remote/runRequest', async (req, res) => {
     // jobId must always be present, see storeState and createRequest 
     const jobId = payload.jobId;
     const executor = await jobs.getJobExecutor(contextHelpers.getAdminContext(), jobId);
+    if (!executor) {
+        res.status(400);
+        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} does not exist`);
+        res.json({});
+        return false;
+    }
+
     if (executor.cert_serial !== certSerial.toString()) {
         res.status(403);
         log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to create a request on behalf of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
