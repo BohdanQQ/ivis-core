@@ -8,7 +8,7 @@ const scripts = require('./scripts');
 const {
     ExecutorPaths, TaskPaths, RunPaths,
 } = require('./paths');
-const { RemoteRunState } = require('../../../../shared/remote-run');
+const { RemoteRunState, RequestType } = require('../../../../shared/remote-run');
 const certs = require('../../remote-certificates');
 
 const LOG_ID = 'slurm-pool';
@@ -105,6 +105,10 @@ async function createRunInput(taskPaths, runPaths, runConfig, commandExecutor) {
             trustedRunRequestPath: '/rest/remote/runRequest'
         },
         state: runConfig.state,
+        requestTypes: {
+            createSignal: RequestType.CREATE_SIG,
+            storeState: RequestType.STORE_STATE
+        }
     };
     const inputFileContents = `${JSON.stringify(realRunConfig)}\n`;
 
