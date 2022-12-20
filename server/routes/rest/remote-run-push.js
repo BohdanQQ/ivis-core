@@ -1,18 +1,17 @@
-'use strict';
 const router = require('../../lib/router-async').create();
 const { emitter } = require('../../lib/task-events');
 const { RequestType, RemoteRunState } = require('../../../shared/remote-run');
 const { esConstants, scheduleRemoteRunFinished } = require('../../lib/task-handler');
 const knex = require('../../lib/knex');
 const { RunStatus } = require('../../../shared/jobs');
-const log = require("../../lib/log");
+const log = require('../../lib/log');
 const remoteComms = require('../../lib/remote-executor-comms');
 const jobs = require('../../models/jobs');
-const { EventTypes, getRunIdFromEventType } = require("../../lib/task-events");
+const { EventTypes, getRunIdFromEventType } = require('../../lib/task-events');
 const contextHelpers = require('../../lib/context-helpers');
 const jobRequests = require('../../lib/job-requests');
 
-const LOG_ID = 'remote-push'
+const LOG_ID = 'remote-push';
 
 function hasOwnProperties(obj, props) {
     return props.reduce((prev, prop) => prev && obj.hasOwnProperty(prop), true);
@@ -47,25 +46,27 @@ function selectStateToWrite(dbState, incomingState) {
     const incPrio = getStatePriority(incomingState);
     if (incPrio > dbPrio) {
         return incomingState;
-    } else if (dbPrio > incPrio) {
+    }
+    if (dbPrio > incPrio) {
         return dbState;
-    } else if (dbState !== incomingState) {
+    }
+    if (dbState !== incomingState) {
         return null;
     }
     return dbState;
 }
 
 const certCheckErrNo = {
-    HEADER_NOT_FOUND: "HEADER_NOT_FOUND",
-    INVALID_FORMAT: "INVALID_FORMAT",
+    HEADER_NOT_FOUND: 'HEADER_NOT_FOUND',
+    INVALID_FORMAT: 'INVALID_FORMAT',
 };
 
 /**
- * @param {object} request 
+ * @param {object} request
  * @returns {BigInt | string } serial number of the certificate or an error
  */
 function extractCertSerial(request) {
-    const serialNumRegex = new RegExp('{ serialNumber (?<serialNumber>[0-9]+),', 'g');
+    const serialNumRegex = /{ serialNumber (?<serialNumber>[0-9]+),/g;
     const match = serialNumRegex.exec(request.headers['x-ivis-cert-serial']);
 
     if (match === null) {
@@ -76,8 +77,7 @@ function extractCertSerial(request) {
     let certSerial = null;
     try {
         certSerial = BigInt(serialNumber);
-    }
-    catch (e) {
+    } catch (e) {
         log.error(LOG_ID, e.toString());
         return certCheckErrNo.INVALID_FORMAT;
     }
@@ -89,19 +89,19 @@ function extractCertSerial(request) {
     return certSerial;
 }
 
-// helper function to tie presence checking and the HTTP response 
+// helper function to tie presence checking and the HTTP response
 function certSerialPresenceCheck(req, res) {
-    let extractedSerial = extractCertSerial(req);
+    const extractedSerial = extractCertSerial(req);
     if (extractedSerial === certCheckErrNo.HEADER_NOT_FOUND) {
         res.status(400);
         res.json({});
-        log.verbose("Invalid request with no certificate serial header");
+        log.verbose('Invalid request with no certificate serial header');
         return false;
     }
     if (extractedSerial === certCheckErrNo.INVALID_FORMAT) {
         res.status(400);
         res.json({});
-        log.verbose("Invalid certificate serial header value format");
+        log.verbose('Invalid certificate serial header value format');
         return false;
     }
 
@@ -110,7 +110,7 @@ function certSerialPresenceCheck(req, res) {
 
 router.postAsync('/remote/status', async (req, res) => {
     // request checking ...
-    let certSerial = certSerialPresenceCheck(req, res);
+    const certSerial = certSerialPresenceCheck(req, res);
     if (!certSerial) {
         return;
     }
@@ -123,7 +123,9 @@ router.postAsync('/remote/status', async (req, res) => {
         return;
     }
 
-    const { runId, status, output, errors } = req.body;
+    const {
+        runId, status, output, errors,
+    } = req.body;
     const incomingStatus = translateRemoteState(status.status);
     if (incomingStatus === null) {
         res.status(400);
@@ -149,7 +151,7 @@ router.postAsync('/remote/status', async (req, res) => {
     // request execution
     const outputToAppend = `${output || ''}${errors || ''}`;
     const finishedTimestamp = status.finished_at || null;
-    const responseStatus = 200;
+    let responseStatus = 200;
     let stateWritten = null;
     let jobId;
     // get admin context because there is none
@@ -171,20 +173,19 @@ router.postAsync('/remote/status', async (req, res) => {
             }
             stateWritten = stateToWrite === incomingStatus ? incomingStatus : null;
 
-            let diffObj = {
+            const diffObj = {
                 status: stateToWrite,
-                output: run.output || ''
+                output: run.output || '',
             };
 
             if (finishedTimestamp !== null) {
                 diffObj.finished_at = new Date(finishedTimestamp);
             }
             if (outputToAppend !== '') {
-                diffObj.output += '\n' + outputToAppend;
+                diffObj.output += `\n${outputToAppend}`;
             }
 
             await t('job_runs').update(diffObj).where('id', runId);
-
         } catch (error) {
             log.error(LOG_ID, `error when updating run from remote status push: ${error}`);
             // 1 read & 1 write -> no need for rollback
@@ -203,12 +204,11 @@ router.postAsync('/remote/status', async (req, res) => {
         //  - remote run end event can also be repeated
         if (executor) {
             await remoteComms.getRemoteHandler(executor.type).removeRun(executor, runId);
-        }
-        else {
+        } else {
             log.error(LOG_ID, `Executor for run ${runId} not found`);
         }
     }
-    return res.json({});
+    res.json({});
 });
 
 async function emitExecutorCheck(type, data, certSerial, res) {
@@ -216,8 +216,7 @@ async function emitExecutorCheck(type, data, certSerial, res) {
     if (type === EventTypes.ACCESS_TOKEN_REFRESH) {
         const { jobId } = data;
         executor = await jobs.getJobExecutor(contextHelpers.getAdminContext(), jobId);
-    }
-    else {
+    } else {
         const runId = getRunIdFromEventType(type);
         executor = await jobs.getRunExecutor(runId);
     }
@@ -240,7 +239,7 @@ async function emitExecutorCheck(type, data, certSerial, res) {
 }
 
 router.postAsync('/remote/emit', async (req, res) => {
-    let certSerial = certSerialPresenceCheck(req, res);
+    const certSerial = certSerialPresenceCheck(req, res);
     if (!certSerial) {
         return;
     }
@@ -259,11 +258,11 @@ router.postAsync('/remote/emit', async (req, res) => {
 
     emitter.emit(type, data);
 
-    return res.json({});
+    res.json({});
 });
 
 router.postAsync('/remote/runRequest', async (req, res) => {
-    let certSerial = certSerialPresenceCheck(req, res);
+    const certSerial = certSerialPresenceCheck(req, res);
     if (!certSerial) {
         return;
     }
@@ -277,14 +276,13 @@ router.postAsync('/remote/runRequest', async (req, res) => {
 
     const { type, payload } = req.body;
 
-    // jobId must always be present, see storeState and createRequest 
-    const jobId = payload.jobId;
-    const executor = await jobs.getJobExecutor(contextHelpers.getAdminContext(), jobId);
+    // payload.jobId must always be present, see storeState and createRequest
+    const executor = await jobs.getJobExecutor(contextHelpers.getAdminContext(), payload.jobId);
     if (!executor) {
         res.status(400);
         log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} does not exist`);
         res.json({});
-        return false;
+        return;
     }
 
     if (executor.cert_serial !== certSerial.toString()) {
@@ -297,67 +295,70 @@ router.postAsync('/remote/runRequest', async (req, res) => {
     let response = null;
 
     switch (type) {
-        case RequestType.STORE_STATE:
-            response = await setStatusByResponse(async () => await storeState(payload), res);
-            break;
-        case RequestType.CREATE_SIG:
-            response = await setStatusByResponse(async () => await createRequest(payload), res);
-            break;
+    case RequestType.STORE_STATE:
+        response = await setStatusByResponse(async () => storeState(payload), res);
+        break;
+    case RequestType.CREATE_SIG:
+        response = await setStatusByResponse(async () => createRequest(payload), res);
+        break;
+    default:
+        log.error(LOG_ID, 'unknown request type');
+        res.status(400);
+        res.json({});
+        return;
     }
-    return res.json(response);
+    res.json(response);
 });
 
 async function setStatusByResponse(requestHandler, res) {
     const response = await requestHandler();
     if (response.errStatus) {
         res.status(response.errStatus);
-    }
-    else {
+    } else {
         res.status(200);
     }
     return response;
 }
 
 function createMisssingList(flags, values, sep) {
-    return flags.map((x, idx) => x ? "" : values[idx]).filter((x) => x !== "").join(sep);
+    return flags.map((x, idx) => (x ? '' : values[idx])).filter((x) => x !== '').join(sep);
 }
 
 async function storeState(payload) {
     const statePresent = payload.request[esConstants.STATE_FIELD];
     const jobIdPresent = payload.jobId;
 
-    if (statePresent && jobIdPresent) {
-        const stateStoreErr = await jobRequests.storeRunState(payload.jobId, payload.request[esConstants.STATE_FIELD]);
-        if (stateStoreErr) {
-            return {
-                ...stateStoreErr,
-                errStatus: 500
-            };
-        }
-        return {};
-    } else {
+    if (!statePresent || !jobIdPresent) {
         const nspecFields = jobRequests.createMisssingList([jobIdPresent, statePresent], ['jobId', `${esConstants.STATE_FIELD}`]);
         return { error: `${nspecFields} not specified`, errStatus: 400 };
     }
+
+    const stateStoreErr = await jobRequests.storeRunState(payload.jobId, payload.request[esConstants.STATE_FIELD]);
+    if (stateStoreErr && stateStoreErr.error) {
+        return {
+            ...stateStoreErr,
+            errStatus: 500,
+        };
+    }
+    return {};
 }
 
 async function createRequest(payload) {
     const jobIdPresent = payload.jobId;
     const setsPresent = payload.signalSets;
 
-    if (jobIdPresent && setsPresent) {
-        const createResult = jobRequests.processCreateRequest(payload.jobId, payload.signalSets, payload.signalsSpec);
-        if (createResult && createResult.error) {
-            return {
-                ...createResult,
-                errStatus: 500
-            };
-        }
-        return createResult;
-    } else {
-        const nspecFields = createMisssingList([jobIdPresent, setsPresent], ['jobId', `signalSets`]);
+    if (!jobIdPresent || !setsPresent) {
+        const nspecFields = createMisssingList([jobIdPresent, setsPresent], ['jobId', 'signalSets']);
         return { error: `${nspecFields} not specified`, errStatus: 400 };
     }
+    const createResult = jobRequests.processCreateRequest(payload.jobId, payload.signalSets, payload.signalsSpec);
+    if (createResult && createResult.error) {
+        return {
+            ...createResult,
+            errStatus: 500,
+        };
+    }
+    return createResult;
 }
 
 module.exports = router;

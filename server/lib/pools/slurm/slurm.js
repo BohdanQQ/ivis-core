@@ -102,13 +102,13 @@ async function createRunInput(taskPaths, runPaths, runConfig, commandExecutor) {
             trustedUrlBase: `${config.www.trustedUrlBase}`,
             sandboxUrlBase: `${config.www.sandboxUrlBase}`,
             trustedEmitPath: '/rest/remote/emit',
-            trustedRunRequestPath: '/rest/remote/runRequest'
+            trustedRunRequestPath: '/rest/remote/runRequest',
         },
         state: runConfig.state,
         requestTypes: {
             createSignal: RequestType.CREATE_SIG,
-            storeState: RequestType.STORE_STATE
-        }
+            storeState: RequestType.STORE_STATE,
+        },
     };
     const inputFileContents = `${JSON.stringify(realRunConfig)}\n`;
 
