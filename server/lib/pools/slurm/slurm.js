@@ -95,7 +95,7 @@ async function getHomeDir(commandExecutor) {
 }
 
 async function sshWrapper(executor, func) {
-    const commandExecutor = sshConnectionFromExecutor(executor);
+    const commandExecutor = await sshConnectionFromExecutor(executor);
     try {
         const result = await func(commandExecutor);
         commandExecutor.end();
@@ -116,6 +116,7 @@ async function run(executor, archivePath, runConfig, type, subtype) {
     await sshWrapper(executor, async (commandExecutor) => {
         if (!(await isCacheRecordValid(taskPaths, archiveHash, commandExecutor))) {
             const homedir = await getHomeDir(commandExecutor);
+            await commandExecutor.execute(`mkdir -p ${taskPaths.taskDirectory()}`);
             const remoteArchivePath = `${taskPaths.taskDirectoryWithHomeDir(homedir)}/____taskarchive`;
             const {
                 hostname, port, username, password,

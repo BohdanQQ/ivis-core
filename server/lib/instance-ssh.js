@@ -217,7 +217,6 @@ class SSHConnection {
                         this.#host,
                         this.#port,
                         this.#username,
-                        this.#privateKey,
                         this.#password,
                     ),
                 );

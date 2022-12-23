@@ -152,20 +152,20 @@ function getRunBuildScript(execPaths) {
 # runJobName - name of the run job
 # idMappingPath - path to which the runJobId is supposed to be put
 
-cacheRecordPath=$1; shift
-cacheValidityGuard=$2; shift
-taskDirectory=\\\${3/#\\~/$HOME}; shift # expands the ~ to $HOME (mainly for the tar program)
-outputsPath=\\$4; shift
-runJobName=\\$5; shift
-idMappingPath=\\$6; shift
-pathToRunInput=\\$7; shift
-failEvType=\\$8; shift
-runId=\\$9; shift
-buffTimeSecs=\\\${10}; shift
-outEvType=\\\${11}; shift
-succEvType=\\\${12}; shift
-initScriptPath=\\\${13}; shift
-startScriptPath=\\\${14}; shift
+cacheRecordPath=\\$1; shift
+cacheValidityGuard=\\$1; shift
+taskDirectory=\\\${1/#\\~/$HOME}; shift # expands the ~ to $HOME (mainly for the tar program)
+outputsPath=\\$1; shift
+runJobName=\\$1; shift
+idMappingPath=\\$1; shift
+pathToRunInput=\\$1; shift
+failEvType=\\$1; shift
+runId=\\$1; shift
+buffTimeSecs=\\$1; shift
+outEvType=\\$1; shift
+succEvType=\\$1; shift
+initScriptPath=\\$1; shift
+startScriptPath=\\$1; shift
 # these will remain last as the number of libraries may change
 
 thisBuildOutputPath="nocheck"
@@ -198,7 +198,7 @@ if [[ "\\$cacheCheckResult" == "notCached" ]]; then
         # the above fails if another build has already started...
         # therefore if no builds have started, start building
         srun cp "\\$taskDirectory"/____taskarchive "\\$taskDirectory"/____buildtaskarchive
-        scheduleBuild "$@" > "\\$buildLockPath"
+        scheduleBuild "\\$@" > "\\$buildLockPath"
     fi
     # in case the above if has not run, we wait a moment for the srun to schedule the jobs and
     # fill the buildLockPath file with the job id every run is supposed to wait for
@@ -214,14 +214,11 @@ fi
 
 # submit run job
 # when a run starts, it is ensured that the build is cached
-sbatch --parsable "\\$dependSwitch" --job-name="\\$runJobName" \
-"\\$startScriptPath" \
-"\\$taskDirectory" "\\$pathToRunInput" "\\$thisBuildOutputPath" \
-${execPaths.buildFailInformantScriptPath()} \
-# build fail informant args ...
-"\\$failEvType" "\\$runId" \
-# python runner args...
-${config.tasks.maxRunOutputBytes} "\\$buffTimeSecs" ${config.www.trustedUrlBase}/rest/remote/emit "\\$outEvType" "\\$failEvType" "\\$succEvType" \
+sbatch --parsable \\$dependSwitch --job-name="\\$runJobName" "\\$startScriptPath" \\
+"\\$taskDirectory" "\\$pathToRunInput" "\\$thisBuildOutputPath" \\
+${execPaths.buildFailInformantScriptPath()} \\
+"\\$failEvType" "\\$runId" \\
+${config.tasks.maxRunOutputBytes} "\\$buffTimeSecs" ${config.www.trustedUrlBase}/rest/remote/emit "\\$outEvType" "\\$failEvType" "\\$succEvType" \\
 ${config.www.trustedUrlBase}/rest/remote/status ${RemoteRunState.RUN_FAIL} ${RemoteRunState.SUCCESS} ${execPaths.certPath()} ${execPaths.certKeyPath()} "\\$runId" > "\\$idMappingPath"
 `;
 }
@@ -266,7 +263,7 @@ function getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuar
 }
 
 function getRunBuildInvocation(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype) {
-    return `${taskPaths.execPaths.buildRunScriptPath()} ${getRunBuildArgs(runId, taskPaths, runPaths, cacheValidityGuard, subtype).join(' ')}`;
+    return `${taskPaths.execPaths.runBuildScriptPath()} ${getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype).join(' ')}`;
 }
 
 module.exports = {
