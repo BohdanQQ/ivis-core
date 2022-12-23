@@ -87,6 +87,10 @@ class ExecutorPaths {
     buildFailInformantScriptPath() {
         return `${this.remoteUtilsRepoDirectory()}/__build_fail_informant.sh`;
     }
+
+    runBuildScriptPath() {
+        return `${this.remoteUtilsRepoDirectory()}/__run_build.sh`;
+    }
 }
 
 class TaskPaths {

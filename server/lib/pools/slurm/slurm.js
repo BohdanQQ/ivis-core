@@ -13,48 +13,15 @@ const certs = require('../../remote-certificates');
 
 const LOG_ID = 'slurm-pool';
 
-class CacheRecord {
-    constructor(commandExecutor, executorId, taskId) {
-        this.commandExecutor = commandExecutor;
-        this.taskPaths = new TaskPaths(new ExecutorPaths(executorId), taskId);
-    }
-
-    async isValid(cacheValidityGuard) {
-        const cacheRecordPath = this.taskPaths.cacheRecordPath();
-        const notCachedExpectedOutput = 'notcached';
-        const output = await getCommandOutput(this.commandExecutor, `( [ -f ${cacheRecordPath} ] && [ $(grep -e ^${cacheValidityGuard}$ ${cacheRecordPath}) = "${cacheValidityGuard}" ] ) || echo ${notCachedExpectedOutput}`);
-        // ^^^^^ checks file exists and contains exactly the guard - prints notCachedExpectedOutput if NOT cached ^^^^^
-        return output !== notCachedExpectedOutput;
-    }
-
-    async remove() {
-        const command = `rm -f ${this.taskPaths.cacheRecordPath()}`;
-        await this.commandExecutor(command);
-    }
-
-    async create(cacheValidityGuard) {
-        const command = `echo ${cacheValidityGuard} > ${this.taskPaths.cacheRecordPath()}`;
-        await this.commandExecutor(command);
-    }
-}
-
-function createSlurmSSHCommander(host, port, username, password) {
-    log.verbose(LOG_ID, `creating SSH commander for ${username}@${host}:${port}`);
-    return async (command) => {
-        log.verbose(LOG_ID, `$> ${command}`);
-        return ssh.executeCommand(command, host, port, username, password);
-    };
-}
-
-function commanderFromExecutor(executor) {
+async function sshConnectionFromExecutor(executor) {
     const {
         hostname, port, username, password,
     } = executor.parameters;
-    return createSlurmSSHCommander(hostname, port, username, password);
+    return ssh.makeReadySSHConnection(hostname, port, username, password);
 }
 
 async function getCommandOutput(executor, command) {
-    return (await executor(command)).stdout.join('\n').trim();
+    return (await executor.execute(command)).stdout.trim();
 }
 
 async function getIdMapping(runPaths, commandExecutor) {
@@ -73,6 +40,14 @@ function getArchiveHash(archivePath, type, subtype) {
         .update(fs.readFileSync(archivePath), HASH_INPUT_ENCODING)
         .update(subtype.toString(), HASH_INPUT_ENCODING)
         .digest(HASH_OUTPUT_ENCODING);
+}
+
+async function isCacheRecordValid(taskPaths, cacheValidityGuard, commandExecutor) {
+    const cacheRecordPath = taskPaths.cacheRecordPath();
+    const notCachedExpectedOutput = 'notcached';
+    const output = await getCommandOutput(commandExecutor, `( [ -f ${cacheRecordPath} ] && [ $(grep -e ^${cacheValidityGuard}$ ${cacheRecordPath}) = "${cacheValidityGuard}" ] ) || echo ${notCachedExpectedOutput}`);
+    // ^^^^^ checks file exists and contains exactly the guard - prints notCachedExpectedOutput if NOT cached ^^^^^
+    return output !== notCachedExpectedOutput;
 }
 
 /**
@@ -112,18 +87,23 @@ async function createRunInput(taskPaths, runPaths, runConfig, commandExecutor) {
     };
     const inputFileContents = `${JSON.stringify(realRunConfig)}\n`;
 
-    await commandExecutor(scripts.createFileCommand(runPaths.inputsPath(), inputFileContents));
+    await commandExecutor.execute(scripts.createFileCommand(runPaths.inputsPath(), inputFileContents));
 }
 
-function getRunJobSlurmName(runId) {
-    return `${runId}`;
+async function getHomeDir(commandExecutor) {
+    return getCommandOutput(commandExecutor, 'echo ~');
 }
 
-async function runImpl(taskPaths, runPaths, runConfig, taskType, commandExecutor, buildDependency, outputCheckId) {
-    await createRunInput(taskPaths, runPaths, runConfig, commandExecutor);
-    const dependencyOption = buildDependency ? ` --dependency=afterany:${buildDependency} ` : ' ';
-    const command = `sbatch${dependencyOption}--job-name=${getRunJobSlurmName(runConfig.runId)} --parsable ${scripts.getRunScriptInvocation(taskType, taskPaths, runConfig.runId, runPaths, outputCheckId)} > ${runPaths.idMappingPath()}`;
-    await commandExecutor(command);
+async function sshWrapper(executor, func) {
+    const commandExecutor = sshConnectionFromExecutor(executor);
+    try {
+        const result = await func(commandExecutor);
+        commandExecutor.end();
+        return result;
+    } catch (err) {
+        commandExecutor.end();
+        throw err;
+    }
 }
 
 async function run(executor, archivePath, runConfig, type, subtype) {
@@ -133,71 +113,52 @@ async function run(executor, archivePath, runConfig, type, subtype) {
     const runPaths = new RunPaths(execPaths, runConfig.runId);
 
     const archiveHash = getArchiveHash(archivePath, type, toUseSubtype);
-    const commandExecutor = commanderFromExecutor(executor);
-    const cacheRecord = new CacheRecord(commandExecutor, executor.id, runConfig.taskId);
-    let waitForId = null;
-    let checkOutputId = null;
-    if (!(await cacheRecord.isValid(archiveHash))) {
-        await cacheRecord.remove();
-        [waitForId, checkOutputId] = await build(taskPaths, type, toUseSubtype, archivePath, commandExecutor, executor);
-        await cacheRecord.create(archiveHash);
-    }
+    await sshWrapper(executor, async (commandExecutor) => {
+        if (!(await isCacheRecordValid(taskPaths, archiveHash, commandExecutor))) {
+            const homedir = await getHomeDir(commandExecutor);
+            const remoteArchivePath = `${taskPaths.taskDirectoryWithHomeDir(homedir)}/____taskarchive`;
+            const {
+                hostname, port, username, password,
+            } = executor.parameters;
+            await ssh.uploadFile(archivePath, remoteArchivePath, hostname, port, username, password);
+        }
 
-    await runImpl(taskPaths, runPaths, runConfig, type, commandExecutor, waitForId, checkOutputId);
-}
-
-async function getHomeDir(commandExecutor) {
-    return getCommandOutput(commandExecutor, 'echo ~');
-}
-
-async function build(taskPaths, type, subtype, archivePath, commandExecutor, executor) {
-    const homedir = await getHomeDir(commandExecutor);
-    const remoteArchivePath = `${taskPaths.taskDirectoryWithHomeDir(homedir)}/____taskarchive`;
-    const {
-        hostname, port, username, password,
-    } = executor.parameters;
-    log.info(LOG_ID, 'from: ', archivePath, ' to: ', remoteArchivePath);
-    await commandExecutor(`mkdir -p ${taskPaths.taskDirectory()}`);
-    await ssh.uploadFile(archivePath, remoteArchivePath, hostname, port, username, password);
-
-    const unarchiveCmd = `tar -xf ${remoteArchivePath} --directory=${taskPaths.taskDirectoryWithHomeDir(homedir)}`;
-    await commandExecutor(unarchiveCmd);
-    await commandExecutor(`rm -f ${remoteArchivePath}`);
-
-    const initCmd = `sbatch --parsable ${scripts.getInitScriptInvocation(type, taskPaths, subtype)}`;
-    const buildId = await getCommandOutput(commandExecutor, initCmd);
-    if (buildId.match(/^[0-9]+$/g) === null) {
-        throw new Error(`Build job slurm ID was invalid: ${buildId}`);
-    }
-
-    // cleanup after SUCCESSFUL build
-    // if output is not cleared out, run script should detect that and report the run failure to IVIS-core
-    const jobId = await getCommandOutput(commandExecutor, `sbatch --parsable --output=/dev/null --dependency=afterany:${buildId} ${scripts.getBuildCleanInvocation(taskPaths, buildId)}`);
-    if (jobId.match(/^[0-9]+$/g) === null) {
-        throw new Error(`Build job slurm ID was invalid: ${jobId}`);
-    }
-    return [jobId, buildId];
+        await createRunInput(taskPaths, runPaths, runConfig, commandExecutor);
+        const command = `sbatch ${scripts.getRunBuildInvocation(type, runPaths.runId, taskPaths, runPaths, archiveHash, toUseSubtype)}`;
+        await commandExecutor.execute(command);
+    });
 }
 
 async function stop(executor, runId) {
-    const commandExecutor = commanderFromExecutor(executor);
-    const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
-    const sbatchJobId = await getIdMapping(runPaths, commandExecutor);
-    if (sbatchJobId === null) {
-        return;
-    }
-    await commandExecutor(`scancel ${sbatchJobId}`);
+    await sshWrapper(executor, async (commandExecutor) => {
+        // SLURMSSH again, this connection can be shared and the enitre thing can be extracted into a script
+        // that is, if a job can cancel other job!
+        const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
+        const sbatchJobId = await getIdMapping(runPaths, commandExecutor);
+        if (sbatchJobId === null) {
+            return;
+        }
+        await commandExecutor.execute(`scancel ${sbatchJobId}`);
+    });
 }
 
 async function removeRun(executor, runId) {
-    const commandExecutor = commanderFromExecutor(executor);
+    // SLURMSSH share this connection, try to run via srun or try to create a cleanup script
+    // remove_run.sh runIdMappingPath runInputsPath runOutputsPath
+    //      the runOutputsPath can be obtained from runId (the JobId in the ouput name is redundant and actually prevents the script from
+    //      being straightforward)
+    //      remove the slurm jobId from the output path!
+    // here you would try to execute the script using srun with a timeout... idk... 20s
+    // and fallback to normal method if the srun fails
     const execPaths = new ExecutorPaths(executor.id);
     const runPaths = new RunPaths(execPaths, runId);
-    const jobId = await getIdMapping(runPaths, commandExecutor);
-    await commandExecutor(`rm -f ${runPaths.inputsPath()} ${runPaths.idMappingPath()}`);
-    if (jobId !== null) {
-        await commandExecutor(`rm -f ${runPaths.slurmOutputsPath(jobId)}`);
-    }
+    await sshWrapper(executor, async (commandExecutor) => {
+        const jobId = await getIdMapping(runPaths, commandExecutor);
+        await commandExecutor.execute(`rm -f ${runPaths.inputsPath()} ${runPaths.idMappingPath()}`);
+        if (jobId !== null) {
+            await commandExecutor.execute(`rm -f ${runPaths.slurmOutputsPath(jobId)}`);
+        }
+    });
 }
 
 const slurmStateToIvisState = {
@@ -254,22 +215,25 @@ async function resolveFinishedState(runPaths, slurmId, commandExecutor) {
  * @returns RemoteRunState of the run, null if the state cannot be determined (unknown/already finished run)
  */
 async function status(executor, runId) {
-    const commandExecutor = commanderFromExecutor(executor);
-    const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
+    return sshWrapper(executor, async (commandExecutor) => {
+        const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
 
-    // check mapping
-    const slurmJobId = await getIdMapping(runPaths, commandExecutor);
-    if (slurmJobId === null) {
+        // SLURM SSH - share connection accross this function
+        // !!! all of the usage is reading command output !!! TODO
+        // check mapping
+        const slurmJobId = await getIdMapping(runPaths, commandExecutor);
+        if (slurmJobId === null) {
         // no mapping -> return not found
-        return null;
-    }
+            return null;
+        }
 
-    const state = await getRunSqueueStatus(slurmJobId, commandExecutor);
-    if (state === null) {
-        return resolveFinishedState(runPaths, slurmJobId, commandExecutor);
-    }
+        const state = await getRunSqueueStatus(slurmJobId, commandExecutor);
+        if (state === null) {
+            return resolveFinishedState(runPaths, slurmJobId, commandExecutor);
+        }
 
-    return state;
+        return state;
+    });
 }
 
 function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
@@ -277,9 +241,11 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     const utilsRepoCommit = config.slurm.utilsRepo.commit;
     const execPaths = new ExecutorPaths(executorId);
     // create required directories
-    const commands = [execPaths.rootDirectory(), execPaths.tasksRootDirectory(), execPaths.certDirectory(), execPaths.cacheDirectory(),
+    // SLURMSSH - try to put into one &&-delimited command an send it via srun
+    // would require the usage of homedir
+    const commands = [[execPaths.rootDirectory(), execPaths.tasksRootDirectory(), execPaths.certDirectory(), execPaths.cacheDirectory(),
         execPaths.outputsDirectory(), execPaths.inputsDirectory()]
-        .map((path) => `mkdir -p ${path}`);
+        .map((path) => `mkdir -p ${path}`).join(' && ')];
     // inject certificates
     [[execPaths.caPath(), certCA], [execPaths.certKeyPath(), certKey], [execPaths.certPath(), cert]].forEach(([path, contents]) => commands.push(scripts.createFileCommand(path, contents)));
     // clone auxiliary repository providing basics for running jobs
@@ -289,7 +255,7 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     ]);
 
     // creates standalone scripts for bulding, running & informing IVIS core of run fail in the case of failed build
-    for (const taskType of [TaskType.PYTHON]) {
+    [TaskType.PYTHON].forEach((taskType) => {
         /** INIT script
          * - will be run via slurm => creates an output file
          * - builds the taskType tasks
@@ -302,7 +268,7 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
          * - output file can be examined to determine JOB success/fail (as part of the getStatus call)
          */
         commands.push(...scripts.getScriptCreationCommands(taskType, scripts.ScriptTypes.RUN, execPaths, homedir));
-    }
+    });
     /** BUILD CLEAN script
      * - will be run via slurm after the INIT script (using slurm dependency configuration)
      * - creates no output
@@ -316,9 +282,11 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
      *   proper data so that IVIS-core may terminate and clear the run
      */
     commands.push(...scripts.getBuildFailInformantScriptCreationCommands(execPaths));
-
+    commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths));
     commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
     // waits for the result
+    // SLURMSSH - nice... use this for other commands - again && delimited groups
+    // directories, git repo, all scripts
     commands.push(`srun ${execPaths.remoteUtilsRepoDirectory()}/install.sh ${execPaths.remoteUtilsRepoDirectory()}`);
     return commands;
 }
@@ -331,12 +299,12 @@ async function createSlurmPool(executor, certificateGeneratorFunction) {
         cert,
         key,
     } = certs.getExecutorCertKey(executor.id);
-    const commander = commanderFromExecutor(executor);
-    const commands = getPoolInitCommands(executor.id, ca, key, cert, await getHomeDir(commander));
-
-    for (const command of commands) {
-        await commander(command);
-    }
+    await sshWrapper(executor, async (commandExecutor) => {
+        const commands = getPoolInitCommands(executor.id, ca, key, cert, await getHomeDir(commandExecutor));
+        for (const command of commands) {
+            await commandExecutor.execute(command);
+        }
+    });
 }
 
 module.exports = {
