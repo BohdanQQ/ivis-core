@@ -10,13 +10,50 @@ const contextHelpers = require('../lib/context-helpers');
 const shares = require('./shares');
 const {RunStatus} = require('../../shared/jobs');
 const {TaskSource} = require('../../shared/tasks');
-const jobHandler = require('../lib/task-handler');
 const signalSets = require('./signal-sets');
 const allowedKeys = new Set(['name', 'description', 'task', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace', 'executor_id']);
 const allowedKeysUpdate = new Set(['name', 'description', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace', 'executor_id']);
 const {getVirtualNamespaceId} = require('../../shared/namespaces');
-const getExecutorById = require('./job-execs').getById;
 const columns = ['jobs.id', 'jobs.name', 'jobs.description', 'jobs.task', 'jobs.created', 'jobs.state', 'jobs.trigger', 'jobs.min_gap', 'jobs.delay', 'namespaces.name', 'job_executors.name', 'tasks.name', 'tasks.source'];
+const { MachineTypeParams } = require('../../shared/remote-run');
+// this is a copy of the job-execs.getById function
+// reason this is here is a circular dependency [SLURM -> task-handler -> models/jobs -> models/job-execs -> SLURM]
+// after this function , there is an early exports statement and late requires statatement to help with the module resolution
+// TODO: might be over-engineered + the copy is ugly
+
+/**
+ * Return an executor with given id.
+ * @param context the calling user's context
+ * @param {number} id the primary key of the executor
+ * @returns {Promise<Object>}
+ */
+async function getExecutorById(context, id, includePermissions = true) {
+    return await knex.transaction(async tx => {
+        const exec = await tx('job_executors').where('id', id).first();
+        await shares.enforceEntityPermissionTx(tx, context, 'jobExecutor', id, 'view');
+        exec.parameters = JSON.parse(exec.parameters);
+        exec.state = JSON.parse(exec.state);
+        if (includePermissions) {
+            exec.permissions = await shares.getPermissionsTx(tx, context, 'jobExecutor', id);
+        }
+        exec.execParams = MachineTypeParams[exec.type];
+        return exec;
+    });
+}
+
+async function getRunExecutor(runId) {
+    const job = (await knex('jobs')
+    .innerJoin('job_runs', 'jobs.id', 'job_runs.job')
+    .where('job_runs.id', runId)
+    .first()
+    );
+    if (job === null || job === undefined) {
+        return null;
+    }
+    return await getExecutorById(contextHelpers.getAdminContext(), job.executor_id, false);
+}  
+module.exports.getRunExecutor = getRunExecutor;
+const jobHandler = require('../lib/task-handler');
 
 function hash(entity) {
     return hasher.hash(filterObject(entity, allowedKeys));
@@ -394,18 +431,6 @@ async function getJobExecutor(context, jobId, withPermissions = false) {
     });
 }
 
-async function getRunExecutor(runId) {
-    const job = (await knex('jobs')
-    .innerJoin('job_runs', 'jobs.id', 'job_runs.job')
-    .where('job_runs.id', runId)
-    .first()
-    );
-    if (job === null || job === undefined) {
-        return null;
-    }
-    return await getExecutorById(contextHelpers.getAdminContext(), job.executor_id, false);
-}  
-
 module.exports.hash = hash;
 module.exports.getById = getById;
 module.exports.getByIdWithTaskParams = getByIdWithTaskParams;
@@ -424,5 +449,5 @@ module.exports.removeAllRuns = removeAllRuns;
 module.exports.run = run;
 module.exports.stop = stop;
 module.exports.getJobExecutor = getJobExecutor;
-module.exports.getRunExecutor = getRunExecutor;
+
 
