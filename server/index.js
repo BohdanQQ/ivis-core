@@ -13,7 +13,7 @@ const shares = require('./models/shares');
 const templates = require('./models/templates');
 const tasks = require('./models/tasks');
 const builder = require('./lib/builder');
-const taskHandler = require('./lib/task-handler');
+const taskHandlerInitHelper = require('./lib/task-handler-init-helpers');
 const alertsHandler = require('./lib/alerts-event-handler')
 const indexer = require('./lib/indexers/' + config.indexer);
 const appBuilder = require('./app-builder');
@@ -74,7 +74,9 @@ async function initAndStart() {
     await savePdf.init();
     await builder.init();
     await indexer.init();
-    await taskHandler.init();
+    // taskHandler.init used to be here
+    // (the taskHandlerInitHelper bypasses a circular dependency)
+    await taskHandlerInitHelper.init();
     await alertsHandler.init();
     await templates.compileAll();
     await tasks.compileAll();
