@@ -115,7 +115,7 @@ router.postAsync('/remote/status', async (req, res) => {
         return;
     }
 
-    // errors and output can be undefined
+    // output can be undefined
     if (!hasOwnProperties(req.body, ['runId', 'status'])) {
         res.status(400);
         log.info(LOG_ID, 'status request is invalid: ', req.body);
@@ -124,7 +124,7 @@ router.postAsync('/remote/status', async (req, res) => {
     }
 
     const {
-        runId, status, output, errors,
+        runId, status, output,
     } = req.body;
     const incomingStatus = translateRemoteState(status.status);
     if (incomingStatus === null) {
@@ -149,7 +149,7 @@ router.postAsync('/remote/status', async (req, res) => {
     }
 
     // request execution
-    const outputToAppend = `${output || ''}${errors || ''}`;
+    const outputToAppend = output || '';
     const finishedTimestamp = status.finished_at || null;
     let responseStatus = 200;
     let stateWritten = null;
