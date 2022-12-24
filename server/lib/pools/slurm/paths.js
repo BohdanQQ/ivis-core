@@ -52,6 +52,13 @@ class ExecutorPaths {
         return `${this._outputsDirectoryWithHomeDir(homedir)}/IVIS-run-%j-%x.out`;
     }
 
+    slurmRunOutputShellExpansion(slurmJobIdVariableName, runIdVariableName) {
+        if (slurmJobIdVariableName === runIdVariableName) {
+            throw new Error('Shell variable names are expected to be different');
+        }
+        return `${this.outputsDirectory()}/IVIS-run-"\\$${slurmJobIdVariableName}"-"\\$${runIdVariableName}".out`;
+    }
+
     buildOutputSbatchFormatPath(homedir) {
         return `${this._outputsDirectoryWithHomeDir(homedir)}/IVIS-build-%j.out`;
     }
@@ -90,6 +97,10 @@ class ExecutorPaths {
 
     runBuildScriptPath() {
         return `${this.remoteUtilsRepoDirectory()}/__run_build.sh`;
+    }
+
+    runRemoveScriptPath() {
+        return `${this.remoteUtilsRepoDirectory()}/__run_remove.sh`;
     }
 }
 

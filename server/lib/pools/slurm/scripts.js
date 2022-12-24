@@ -3,6 +3,7 @@ const config = require('../../config');
 const { getSuccessEventType, getOutputEventType, getFailEventType } = require('../../task-events');
 const { RemoteRunState } = require('../../../../shared/remote-run');
 const { PythonSubtypes, defaultSubtypeKey } = require('../../../../shared/tasks');
+const { ExecutorPaths, RunPaths } = require('./paths');
 // INIT script is expected to perform build output check and start the job execution if build succeeded
 const taskTypeRunScript = {
 // taskdir runInputPath buildOutputPath buildFailInformantPath runFailEmitTypeValue runId jobArgs
@@ -234,7 +235,7 @@ function getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuar
         cacheValidityGuard,
         taskPaths.taskDirectory(),
         taskPaths.execPaths.outputsDirectory(),
-        `${runId}`, // job name
+        runId, // job name - cooperates with RunPaths.slurmOutputsPath !!
         runPaths.idMappingPath(),
         runPaths.inputsPath(),
         getFailEventType(runId),
@@ -252,6 +253,33 @@ function getRunBuildInvocation(taskType, runId, taskPaths, runPaths, cacheValidi
     return `${taskPaths.execPaths.runBuildScriptPath()} ${getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype).join(' ')}`;
 }
 
+function getRunRemoveScript(execPaths) {
+    return `#!/bin/bash
+runInputPath=\\$1; shift
+runIdMappingPath=\\$1; shift
+runId=\\$1; shift
+
+jobId=\\$( cat "\\$runIdMappingPath" || echo "null")
+rm -f "\\$runInputPath" "\\$runIdMappingPath"
+if [[ "\\$jobId" != "null" ]]; then
+    rm -f ${execPaths.slurmRunOutputShellExpansion('jobId', 'runId')}
+fi
+`;
+}
+
+/**
+ *
+ * @param {RunPaths} runPaths
+ * @returns
+ */
+function getRunRemoveInvocation(runPaths) {
+    return `${runPaths.execPaths.runRemoveScriptPath()} ${runPaths.inputsPath()} ${runPaths.idMappingPath()} ${runPaths.runId}`;
+}
+
+function getRunRemoveScriptCreationCommands(execPaths) {
+    return createScriptHelper(execPaths.runRemoveScriptPath(), getRunRemoveScript(execPaths));
+}
+
 module.exports = {
     ScriptTypes,
     getScriptCreationCommands,
@@ -259,5 +287,7 @@ module.exports = {
     getRunBuildInvocation,
     getBuildFailInformantScriptCreationCommands,
     getBuildCleanScriptCreationCommands,
+    getRunRemoveScriptCreationCommands,
+    getRunRemoveInvocation,
     createFileCommand,
 };

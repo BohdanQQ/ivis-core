@@ -144,21 +144,10 @@ async function stop(executor, runId) {
 }
 
 async function removeRun(executor, runId) {
-    // SLURMSSH share this connection, try to run via srun or try to create a cleanup script
-    // remove_run.sh runIdMappingPath runInputsPath runOutputsPath
-    //      the runOutputsPath can be obtained from runId (the JobId in the ouput name is redundant and actually prevents the script from
-    //      being straightforward)
-    //      remove the slurm jobId from the output path!
-    // here you would try to execute the script using srun with a timeout... idk... 20s
-    // and fallback to normal method if the srun fails
-    const execPaths = new ExecutorPaths(executor.id);
-    const runPaths = new RunPaths(execPaths, runId);
+    const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
+    const command = scripts.getRunRemoveInvocation(runPaths);
     await sshWrapper(executor, async (commandExecutor) => {
-        const jobId = await getIdMapping(runPaths, commandExecutor);
-        await commandExecutor.execute(`rm -f ${runPaths.inputsPath()} ${runPaths.idMappingPath()}`);
-        if (jobId !== null) {
-            await commandExecutor.execute(`rm -f ${runPaths.slurmOutputsPath(jobId)}`);
-        }
+        await commandExecutor.execute(`srun ${command}`);
     });
 }
 
@@ -284,6 +273,7 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
      */
     commands.push(...scripts.getBuildFailInformantScriptCreationCommands(execPaths));
     commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths));
+    commands.push(...scripts.getRunRemoveScriptCreationCommands(execPaths));
     commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
     // waits for the result
     // SLURMSSH - nice... use this for other commands - again && delimited groups
