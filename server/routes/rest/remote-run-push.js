@@ -14,7 +14,7 @@ const jobRequests = require('../../lib/job-requests');
 const LOG_ID = 'remote-push';
 
 function hasOwnProperties(obj, props) {
-    return props.reduce((prev, prop) => prev && obj.hasOwnProperty(prop), true);
+    return props.reduce((prev, prop) => prev && Object.prototype.hasOwnProperty.call(obj, prop), true);
 }
 
 function translateRemoteState(remoteState) {

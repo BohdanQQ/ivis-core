@@ -51,7 +51,6 @@ async function isCacheRecordValid(taskPaths, cacheValidityGuard, commandExecutor
 }
 
 /**
- *
  * @param {TaskPaths} taskPaths
  * @param {RunPaths} runPaths
  * @param {*} runConfig
@@ -94,6 +93,19 @@ async function getHomeDir(commandExecutor) {
     return getCommandOutput(commandExecutor, 'echo ~');
 }
 
+/**
+ * @callback SSHConnFn
+ * @param {ssh.SSHConnection} connection
+ * @returns {Promise<any>}
+ */
+
+/**
+ * Wraps a function call utilizing a ssh connection in a wrapper which
+ * always safely disposes of the connection
+ * @param {any} executor
+ * @param {SSHConnFn} func
+ * @returns {any} whatever the func returns
+ */
 async function sshWrapper(executor, func) {
     const commandExecutor = await sshConnectionFromExecutor(executor);
     try {
@@ -105,7 +117,13 @@ async function sshWrapper(executor, func) {
         throw err;
     }
 }
-
+/**
+ * @param {any} executor
+ * @param {string} archivePath local (IVIS-core) path to the task's code archive
+ * @param {any} runConfig
+ * @param {string} type
+ * @param {string} [subtype]
+ */
 async function run(executor, archivePath, runConfig, type, subtype) {
     const toUseSubtype = subtype || defaultSubtypeKey;
     const execPaths = new ExecutorPaths(executor.id);
@@ -130,6 +148,10 @@ async function run(executor, archivePath, runConfig, type, subtype) {
     });
 }
 
+/**
+ * @param {any} executor
+ * @param {number} runId
+ */
 async function stop(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
     await sshWrapper(executor, async (commandExecutor) => {
@@ -143,11 +165,15 @@ async function stop(executor, runId) {
             await commandExecutor.execute(`scancel ${sbatchJobId}`);
         } catch (err) {
             // pass - job is not running
-            return;
+
         }
     });
 }
 
+/**
+ * @param {any} executor
+ * @param {number} runId
+ */
 async function removeRun(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
     const command = scripts.getRunRemoveInvocation(runPaths);
@@ -204,10 +230,9 @@ async function resolveFinishedState(runPaths, slurmId, commandExecutor) {
 }
 
 /**
- *
  * @param {object} executor
  * @param {number} runId
- * @returns RemoteRunState of the run, null if the state cannot be determined (unknown/already finished run)
+ * @returns {?number} RemoteRunState of the run, null if the state cannot be determined (unknown/already finished run)
  */
 async function status(executor, runId) {
     return sshWrapper(executor, async (commandExecutor) => {
@@ -239,7 +264,7 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     // SLURMSSH - try to put into one &&-delimited command an send it via srun
     // would require the usage of homedir
     const commands = [[execPaths.rootDirectory(), execPaths.tasksRootDirectory(), execPaths.certDirectory(), execPaths.cacheDirectory(),
-    execPaths.outputsDirectory(), execPaths.inputsDirectory()]
+        execPaths.outputsDirectory(), execPaths.inputsDirectory()]
         .map((path) => `mkdir -p ${path}`).join(' && ')];
     // inject certificates
     [[execPaths.caPath(), certCA], [execPaths.certKeyPath(), certKey], [execPaths.certPath(), cert]].forEach(([path, contents]) => commands.push(scripts.createFileCommand(path, contents)));
@@ -287,6 +312,16 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     return commands;
 }
 
+/**
+ * @callback CertGenFn
+ * @param {?string} ipAddr
+ * @returns {Promise<void>}
+ */
+
+/**
+ * @param {any} executor
+ * @param {CertGenFn} certificateGeneratorFunction
+ */
 async function createSlurmPool(executor, certificateGeneratorFunction) {
     await certificateGeneratorFunction(null);
 
@@ -306,8 +341,8 @@ async function createSlurmPool(executor, certificateGeneratorFunction) {
 /**
  * Removes the executor from the SLURM cluster. This action is a forceful act which
  * does not care about any running jobs. The executor is purged without any checks
- * so make sure you've done them all 
- * @param {object} executor 
+ * so make sure you've done them all
+ * @param {object} executor
  */
 async function removePool(executor) {
     const execPaths = new ExecutorPaths(executor.id);
@@ -317,5 +352,5 @@ async function removePool(executor) {
 }
 
 module.exports = {
-    status, run, stop, removeRun, createSlurmPool, removePool
+    status, run, stop, removeRun, createSlurmPool, removePool,
 };

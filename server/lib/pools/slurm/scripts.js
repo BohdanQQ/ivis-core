@@ -3,10 +3,15 @@ const config = require('../../config');
 const { getSuccessEventType, getOutputEventType, getFailEventType } = require('../../task-events');
 const { RemoteRunState } = require('../../../../shared/remote-run');
 const { PythonSubtypes, defaultSubtypeKey } = require('../../../../shared/tasks');
-const { ExecutorPaths, RunPaths } = require('./paths');
+const { ExecutorPaths, RunPaths, TaskPaths } = require('./paths');
 // INIT script is expected to perform build output check and start the job execution if build succeeded
 const taskTypeRunScript = {
-// taskdir runInputPath buildOutputPath buildFailInformantPath runFailEmitTypeValue runId jobArgs
+    // taskdir runInputPath buildOutputPath buildFailInformantPath runFailEmitTypeValue runId runbuildOutputPath jobArgs
+    /**
+     * @param {string} sbatchOutputPath
+     * @param {string} runnerScriptPath
+     * @returns {string}
+     */
     [TaskType.PYTHON]: (sbatchOutputPath, runnerScriptPath) => `#!/bin/bash
 #SBATCH --output ${sbatchOutputPath}
 if [[ \\$3 != "nocheck" && -f \\$3 ]]; then
@@ -29,6 +34,11 @@ function getPythonRunScript(sbatchOutputPath, runnerScriptPath) {
 
 // INIT script is expected to write "build complete" on the last line of its (successful) output
 const taskTypeInitScript = {
+    /**
+     * @param {string} sbatchOutputPath
+     * @param {string} ivisPackageDirectory
+     * @returns {string}
+     */
     [TaskType.PYTHON]: (sbatchOutputPath, ivisPackageDirectory) => `#!/bin/bash
 #SBATCH --output ${sbatchOutputPath}
 mkdir -p "\\$1"
@@ -42,10 +52,18 @@ echo "build complete"
 `,
 };
 
+/**
+ * @param {string} sbatchOutputPath sbatch-format output path
+ * @param {string} ivisPackageDirectory path to the task helper package
+ * @returns {string}
+ */
 function getPythonTaskInitScript(sbatchOutputPath, ivisPackageDirectory) {
     return taskTypeInitScript[TaskType.PYTHON](sbatchOutputPath, ivisPackageDirectory);
 }
 
+/**
+ * @returns {string}
+ */
 function getBuildOutputCleanScript() {
     return `#!/bin/bash
 grep -q "build complete$" "\\$1" && rm -f "\\$1"
@@ -56,6 +74,16 @@ rm -f "\\$3".build
 `;
 }
 
+/**
+ *
+ * @param {string} keyPath
+ * @param {string} certPath
+ * @param {string} caCertPath
+ * @param {string} emitUrl complete url to the remote emit endpoint
+ * @param {string} statusUrl complete url to the remote status endpoint
+ * @param {string} failStatus fail state status id recognised by the remote status endpoint
+ * @returns {string}
+ */
 function buildFailInformantScript(keyPath, certPath, caCertPath, emitUrl, statusUrl, failStatus) {
     return `#!/bin/bash
 #SBATCH --output /dev/null
@@ -104,11 +132,20 @@ const scriptSetup = {
     },
 };
 Object.freeze(scriptSetup);
-
+/**
+ * returns a command which creates the specified file
+ * @param {string} path
+ * @param {string} contents
+ */
 function createFileCommand(path, contents) {
     return `cat > ${path} << HEREDOC_EOF\n${contents}\nHEREDOC_EOF`;
 }
 
+/**
+ * @param {string} scriptPath
+ * @param {string} contents
+ * @returns {[string]} commands which create an executable script
+ */
 function createScriptHelper(scriptPath, contents) {
     return [
         createFileCommand(scriptPath, contents),
@@ -116,16 +153,31 @@ function createScriptHelper(scriptPath, contents) {
     ];
 }
 
+/**
+ * @param {string} taskType
+ * @param {string} scriptType
+ * @param {ExecutorPaths} executorPaths
+ * @param {string} homeDirectory absolute (and expanded) path to home directory
+ * @returns {[string]} commands to create a script for the specified task and script types
+ */
 function getScriptCreationCommands(taskType, scriptType, executorPaths, homeDirectory) {
     const scriptInfo = scriptSetup[taskType][scriptType];
     const scriptPath = scriptInfo.pathGetter(executorPaths);
     return createScriptHelper(scriptPath, scriptInfo.contentCreator(executorPaths, homeDirectory));
 }
 
+/**
+ * @param {ExecutorPaths} execPaths
+ * @returns {[string]}
+ */
 function getBuildCleanScriptCreationCommands(execPaths) {
     return createScriptHelper(execPaths.buildOutputCleanScriptPath(), getBuildOutputCleanScript());
 }
 
+/**
+ * @param {ExecutorPaths} execPaths
+ * @returns {[string]}
+ */
 function getBuildFailInformantScriptCreationCommands(execPaths) {
     return createScriptHelper(execPaths.buildFailInformantScriptPath(), buildFailInformantScript(
         execPaths.certKeyPath(),
@@ -140,7 +192,7 @@ function getBuildFailInformantScriptCreationCommands(execPaths) {
 /**
  *
  * @param {ExecutorPaths} execPaths
- * @returns
+ * @returns {string}
  */
 function getRunBuildScript(execPaths, homedir) {
     return `#!/bin/bash
@@ -228,10 +280,24 @@ ${RemoteRunState.RUNNING} > "\\$idMappingPath"
 `;
 }
 
+/**
+ * @param {ExecutorPaths} execPaths
+ * @param {string} homedir absolute (and expanded) path to the directory
+ * @returns {[string]}
+ */
 function getRunBuildScriptCreationCommands(execPaths, homedir) {
     return createScriptHelper(execPaths.runBuildScriptPath(), getRunBuildScript(execPaths, homedir));
 }
 
+/**
+ * @param {string} taskType
+ * @param {number} runId
+ * @param {TaskPaths} taskPaths
+ * @param {RunPaths} runPaths
+ * @param {string} cacheValidityGuard
+ * @param {string} subtype
+ * @returns {[any]} arguments to the runBuild script
+ */
 function getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype) {
     return [
         taskPaths.cacheRecordPath(),
@@ -252,10 +318,23 @@ function getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuar
     ];
 }
 
+/**
+ * @param {string} taskType
+ * @param {number} runId
+ * @param {TaskPaths} taskPaths
+ * @param {RunPaths} runPaths
+ * @param {string} cacheValidityGuard
+ * @param {string} subtype
+ * @returns {string} complete command to invoke the buildRun script
+ */
 function getRunBuildInvocation(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype) {
     return `${taskPaths.execPaths.runBuildScriptPath()} ${getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype).join(' ')}`;
 }
 
+/**
+ * @param {ExecutorPaths} execPaths
+ * @returns {string}
+ */
 function getRunRemoveScript(execPaths) {
     return `#!/bin/bash
 runInputPath=\\$1; shift
@@ -271,14 +350,18 @@ fi
 }
 
 /**
- *
  * @param {RunPaths} runPaths
- * @returns
+ * @returns {string}
  */
 function getRunRemoveInvocation(runPaths) {
     return `${runPaths.execPaths.runRemoveScriptPath()} ${runPaths.inputsPath()} ${runPaths.idMappingPath()} ${runPaths.runId}`;
 }
 
+/**
+ *
+ * @param {ExecutorPaths} execPaths
+ * @returns {[string]}
+ */
 function getRunRemoveScriptCreationCommands(execPaths) {
     return createScriptHelper(execPaths.runRemoveScriptPath(), getRunRemoveScript(execPaths));
 }

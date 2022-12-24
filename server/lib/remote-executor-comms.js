@@ -1,13 +1,11 @@
-'use strict';
-
 const axios = require('axios');
 const https = require('https');
 const knex = require('./knex');
 const { MachineTypes, RemoteRunState } = require('../../shared/remote-run');
 const remoteCerts = require('./remote-certificates');
-const archiver = require('../lib/task-archiver');
+const archiver = require('./task-archiver');
 const { RPS_PUBLIC_PORT } = require('./pools/oci/basic/rjr-setup');
-const slurm = require('../lib/pools/slurm/slurm');
+const slurm = require('./pools/slurm/slurm');
 const { RunStatus } = require('../../shared/jobs');
 const { EventTypes } = require('./task-events');
 
@@ -44,8 +42,8 @@ const remoteExecutorHandlers = {
         stop: handleSlurmStop,
         getStatus: handleSlurmStatus,
         removeRun: handleSlurmRemove,
-    }
-}
+    },
+};
 Object.freeze(remoteExecutorHandlers);
 
 function isMachineRPSBased(executionMachine) {
@@ -56,17 +54,15 @@ function getExecutorCommsPort(executor) {
     if (executor.type === MachineTypes.OCI_BASIC) {
         return RPS_PUBLIC_PORT;
     }
-    else {
-        return executor.parameters.port;
-    }
+
+    return executor.parameters.port;
 }
 
 function getExecutorCommsHostOrIP(executor) {
     if (executor.type === MachineTypes.OCI_BASIC) {
         return executor.state.masterInstanceIp;
-    } else {
-        return executionMachine.parameters.hostname || executionMachine.parameters.ip_address;
     }
+    return executor.parameters.hostname || executor.parameters.ip_address;
 }
 
 function getMachineURLBase(executionMachine) {
@@ -89,9 +85,9 @@ async function handleRJRRun(executionMachine, runId, jobId, spec) {
         codeArchive: (await archiver.getTaskArchive(taskId)).toJSON(),
         accessToken: spec.accessToken,
         state: spec.state,
-        jobId: jobId,
-        runId: runId,
-        taskId: task.id
+        jobId,
+        runId,
+        taskId: task.id,
     };
 
     await httpsClient.post(`${getMachineURLBase(executionMachine)}/run/${runId}`, runRequest, { timeout: commsTimeoutMs });
@@ -106,7 +102,7 @@ async function handleRJRRemove(executionMachine, runId) {
 }
 
 async function handleRJRStatus(executionMachine, runId) {
-    return await httpsClient.get(`${getMachineURLBase(executionMachine)}/run/${runId}`, { timeout: commsTimeoutMs }).then(resp => resp.data);
+    return await httpsClient.get(`${getMachineURLBase(executionMachine)}/run/${runId}`, { timeout: commsTimeoutMs }).then((resp) => resp.data);
 }
 
 async function handleSlurmRun(executionMachine, runId, jobId, spec) {
@@ -118,11 +114,10 @@ async function handleSlurmRun(executionMachine, runId, jobId, spec) {
         owned: spec.owned,
         accessToken: spec.accessToken,
         state: spec.state,
-        jobId: jobId,
-        runId: runId,
-        taskId: task.id
+        jobId,
+        runId,
+        taskId: task.id,
     };
-    console.log('run task settings', task.settings)
     await slurm.run(executionMachine, archiver.getTaskArchivePath(taskId), runRequest, task.type, JSON.parse(task.settings).subtype);
 }
 
@@ -138,34 +133,38 @@ async function handleSlurmRemove(executionMachine, runId) {
 async function handleSlurmStatus(executionMachine, runId) {
     const state = await slurm.status(executionMachine, runId);
     return {
-        status: state ? state : RemoteRunState.RUN_FAIL
+        status: state || RemoteRunState.RUN_FAIL,
     };
 }
-
+/**
+ * @callback CoreSystemEmitFn
+ * @param {string} emitType
+ * @param {any} data
+ * @returns {void}
+ */
 /**
  * If the remote executor is not able to report run stop back, use this function to
- * register necessary run stop events within the task handler process and format the run output 
+ * register necessary run stop events within the task handler process and format the run output
  * to some expected format
- * @param {number} runId 
- * @param {function} coreSystemEmission 
+ * @param {number} runId
+ * @param {CoreSystemEmitFn} coreSystemEmission
  */
 async function stopRunLocally(runId, coreSystemEmission) {
     const run = await knex('job_runs').where('id', runId).first();
     coreSystemEmission(EventTypes.REMOTE_STOP_FROM_LOCAL_SOURCE, {
-        runId, 
-        jobId: run.job
+        runId,
+        jobId: run.job,
     });
     await knex('job_runs').where('id', runId).update({
         status: RunStatus.FAILED,
-        finished_at: new Date()
+        finished_at: new Date(),
     });
     await knex('job_runs').update({ output: knex.raw('CONCAT(\'INFO: Run Cancelled\n\nLog:\n\', `output`)') }).where('id', runId);
-
 }
 
 /**
- * 
- * @param {string} machineType 
+ *
+ * @param {string} machineType
  * @returns {{run: function, stop: function, getStatus: function, removeRun: function}}
  */
 function getRemoteHandler(machineType) {
