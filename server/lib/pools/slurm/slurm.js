@@ -261,8 +261,6 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     const utilsRepoCommit = config.slurm.utilsRepo.commit;
     const execPaths = new ExecutorPaths(executorId);
     // create required directories
-    // SLURMSSH - try to put into one &&-delimited command an send it via srun
-    // would require the usage of homedir
     const commands = [[execPaths.rootDirectory(), execPaths.tasksRootDirectory(), execPaths.certDirectory(), execPaths.cacheDirectory(),
         execPaths.outputsDirectory(), execPaths.inputsDirectory()]
         .map((path) => `mkdir -p ${path}`).join(' && ')];
@@ -302,12 +300,15 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
      *   proper data so that IVIS-core may terminate and clear the run
      */
     commands.push(...scripts.getBuildFailInformantScriptCreationCommands(execPaths));
+    // RUNBUILD script is the mastermind of a single run
+    // takes care of proper build caching/scheduling and running the INIT/RUN scripts with correct parameters
+
+    // this script is possible only when a sbtach script can execute sbatch
+    // and saves a ton of internet traffic since everything is happening inside the cluster
     commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths, homedir));
     commands.push(...scripts.getRunRemoveScriptCreationCommands(execPaths));
     commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
     // waits for the result
-    // SLURMSSH - nice... use this for other commands - again && delimited groups
-    // directories, git repo, all scripts
     commands.push(`srun ${execPaths.remoteUtilsRepoDirectory()}/install.sh ${execPaths.remoteUtilsRepoDirectory()}`);
     return commands;
 }
