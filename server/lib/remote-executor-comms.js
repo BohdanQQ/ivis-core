@@ -8,6 +8,8 @@ const remoteCerts = require('./remote-certificates');
 const archiver = require('../lib/task-archiver');
 const { RPS_PUBLIC_PORT } = require('./pools/oci/basic/rjr-setup');
 const slurm = require('../lib/pools/slurm/slurm');
+const { RunStatus } = require('../../shared/jobs');
+const { EventTypes } = require('./task-events');
 
 const httpsAgent = new https.Agent({
     ca: remoteCerts.getRemoteCACert(),
@@ -124,8 +126,9 @@ async function handleSlurmRun(executionMachine, runId, jobId, spec) {
     await slurm.run(executionMachine, archiver.getTaskArchivePath(taskId), runRequest, task.type, JSON.parse(task.settings).subtype);
 }
 
-async function handleSlurmStop(executionMachine, runId) {
+async function handleSlurmStop(executionMachine, runId, coreSystemEmission) {
     await slurm.stop(executionMachine, runId);
+    stopRunLocally(runId, coreSystemEmission);
 }
 
 async function handleSlurmRemove(executionMachine, runId) {
@@ -137,6 +140,27 @@ async function handleSlurmStatus(executionMachine, runId) {
     return {
         status: state ? state : RemoteRunState.RUN_FAIL
     };
+}
+
+/**
+ * If the remote executor is not able to report run stop back, use this function to
+ * register necessary run stop events within the task handler process and format the run output 
+ * to some expected format
+ * @param {number} runId 
+ * @param {function} coreSystemEmission 
+ */
+async function stopRunLocally(runId, coreSystemEmission) {
+    const run = await knex('job_runs').where('id', runId).first();
+    coreSystemEmission(EventTypes.REMOTE_STOP_FROM_LOCAL_SOURCE, {
+        runId, 
+        jobId: run.job
+    });
+    await knex('job_runs').where('id', runId).update({
+        status: RunStatus.FAILED,
+        finished_at: new Date()
+    });
+    await knex('job_runs').update({ output: knex.raw('CONCAT(\'INFO: Run Cancelled\n\nLog:\n\', `output`)') }).where('id', runId);
+
 }
 
 /**

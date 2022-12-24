@@ -11,7 +11,8 @@ const EventTypes = {
     FAIL: 'fail',
     SUCCESS: 'success',
     ACCESS_TOKEN: 'access_token',
-    ACCESS_TOKEN_REFRESH: 'access_token_refresh'
+    ACCESS_TOKEN_REFRESH: 'access_token_refresh',
+    REMOTE_STOP_FROM_LOCAL_SOURCE: 'remote_stop_local'
 }
 
 function getOutputEventType(runId) {

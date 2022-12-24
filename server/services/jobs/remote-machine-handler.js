@@ -19,9 +19,9 @@ async function handleRun(executionMachine, runId, jobId, spec) {
     await handler.run(executionMachine, runId, jobId, spec);
 }
 
-async function handleStop(executionMachine, runId) {
+async function handleStop(executionMachine, runId, coreSystemEmission) {
     const handler = getHandlerChecked(executionMachine.type);
-    await handler.stop(executionMachine, runId);
+    await handler.stop(executionMachine, runId, coreSystemEmission);
 }
 
 module.exports = {

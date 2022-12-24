@@ -139,6 +139,10 @@ async function init() {
         }
     });
 
+    taskEmitter.on(TaskEventTypes.REMOTE_STOP_FROM_LOCAL_SOURCE, async ( { runId, jobId }) => {
+        scheduleRemoteRunFinished(runId, jobId);
+    });
+
     esEmitter
         .on(EsEventTypes.INSERT, reindexOccurred)
         .on(EsEventTypes.INDEX, reindexOccurred)

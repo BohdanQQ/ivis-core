@@ -147,7 +147,7 @@ async function stop(msg) {
                     await handler.stop(runId);
                 }
                 else {
-                    await remoteStop(executionMachine, runId);
+                    await remoteStop(executionMachine, runId, emitToCoreSystem);
                     // return here since the emission request should come from the remote machine itself when the job actually stops
                     return;
                 }

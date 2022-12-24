@@ -131,15 +131,20 @@ async function run(executor, archivePath, runConfig, type, subtype) {
 }
 
 async function stop(executor, runId) {
+    const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
     await sshWrapper(executor, async (commandExecutor) => {
         // SLURMSSH again, this connection can be shared and the enitre thing can be extracted into a script
         // that is, if a job can cancel other job!
-        const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
         const sbatchJobId = await getIdMapping(runPaths, commandExecutor);
         if (sbatchJobId === null) {
             return;
         }
-        await commandExecutor.execute(`scancel ${sbatchJobId}`);
+        try {
+            await commandExecutor.execute(`scancel ${sbatchJobId}`);
+        } catch (err) {
+            // pass - job is not running
+            return;
+        }
     });
 }
 
@@ -213,7 +218,7 @@ async function status(executor, runId) {
         // check mapping
         const slurmJobId = await getIdMapping(runPaths, commandExecutor);
         if (slurmJobId === null) {
-        // no mapping -> return not found
+            // no mapping -> return not found
             return null;
         }
 
@@ -234,7 +239,7 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     // SLURMSSH - try to put into one &&-delimited command an send it via srun
     // would require the usage of homedir
     const commands = [[execPaths.rootDirectory(), execPaths.tasksRootDirectory(), execPaths.certDirectory(), execPaths.cacheDirectory(),
-        execPaths.outputsDirectory(), execPaths.inputsDirectory()]
+    execPaths.outputsDirectory(), execPaths.inputsDirectory()]
         .map((path) => `mkdir -p ${path}`).join(' && ')];
     // inject certificates
     [[execPaths.caPath(), certCA], [execPaths.certKeyPath(), certKey], [execPaths.certPath(), cert]].forEach(([path, contents]) => commands.push(scripts.createFileCommand(path, contents)));
