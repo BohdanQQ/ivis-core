@@ -219,28 +219,14 @@ sbatch --parsable \\$dependSwitch --job-name="\\$runJobName" "\\$startScriptPath
 ${execPaths.buildFailInformantScriptPath()} \\
 "\\$failEvType" "\\$runId" \\
 ${config.tasks.maxRunOutputBytes} "\\$buffTimeSecs" ${config.www.trustedUrlBase}/rest/remote/emit "\\$outEvType" "\\$failEvType" "\\$succEvType" \\
-${config.www.trustedUrlBase}/rest/remote/status ${RemoteRunState.RUN_FAIL} ${RemoteRunState.SUCCESS} ${execPaths.certPath()} ${execPaths.certKeyPath()} "\\$runId" > "\\$idMappingPath"
+${config.www.trustedUrlBase}/rest/remote/status ${RemoteRunState.RUN_FAIL} ${RemoteRunState.SUCCESS} ${execPaths.certPath()} ${execPaths.certKeyPath()} "\\$runId" \\
+${RemoteRunState.RUNNING} > "\\$idMappingPath"
 `;
 }
 
 function getRunBuildScriptCreationCommands(execPaths) {
     return createScriptHelper(execPaths.runBuildScriptPath(), getRunBuildScript(execPaths));
 }
-
-// $cacheRecordPath = $1; shift
-// $cacheValidityGuard = $2; shift
-// $taskDirectory = \\\${3/#\\~/$HOME}; shift # expands the ~ to $HOME (mainly for the tar program)
-// $outputsPath = \\$4; shift
-// $runJobName = \\$5; shift
-// $idMappingPath = \\$6; shift
-// $pathToRunInput = \\$7; shift
-// $failEvType = \\$8; shift
-// $runId = \\$9; shift
-// $buffTimeSecs = \\\${10}; shift
-// $outEvType = \\\${11}; shift
-// $succEvType = \\\${12}; shift
-// # these will remain last as the number of libraries may change
-// $pythonLibsExpansion = \\$@
 
 function getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype) {
     return [
