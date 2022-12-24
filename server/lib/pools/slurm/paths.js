@@ -44,12 +44,12 @@ class ExecutorPaths {
         return this._inRoot('/outputs');
     }
 
-    _outputsDirectoryWithHomeDir(homedir) {
+    outputsDirectoryWithHomeDir(homedir) {
         return `${this.rootDirectoryWithHomeDir(homedir)}/outputs`;
     }
 
     outputSbatchFormatPath(homedir) {
-        return `${this._outputsDirectoryWithHomeDir(homedir)}/IVIS-run-%j-%x.out`;
+        return `${this.outputsDirectoryWithHomeDir(homedir)}/IVIS-run-%j-%x.out`;
     }
 
     slurmRunOutputShellExpansion(slurmJobIdVariableName, runIdVariableName) {
@@ -60,7 +60,7 @@ class ExecutorPaths {
     }
 
     buildOutputSbatchFormatPath(homedir) {
-        return `${this._outputsDirectoryWithHomeDir(homedir)}/IVIS-build-%j.out`;
+        return `${this.outputsDirectoryWithHomeDir(homedir)}/IVIS-build-%j.out`;
     }
 
     buildOutputPath(slurmJobId) {

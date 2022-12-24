@@ -272,7 +272,7 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
      *   proper data so that IVIS-core may terminate and clear the run
      */
     commands.push(...scripts.getBuildFailInformantScriptCreationCommands(execPaths));
-    commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths));
+    commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths, homedir));
     commands.push(...scripts.getRunRemoveScriptCreationCommands(execPaths));
     commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
     // waits for the result

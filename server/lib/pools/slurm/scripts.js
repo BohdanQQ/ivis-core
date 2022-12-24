@@ -14,9 +14,11 @@ if [[ \\$3 != "nocheck" && -f \\$3 ]]; then
     \\$4 \\$5 \\$6
     exit
 fi
+# remove runbuild script output - comment this for debugging
+rm -f \\$7
 cd "\\$1"
 . ./.venv/bin/activate
-cat "\\$2" | python3 ${runnerScriptPath} ./${PYTHON_JOB_FILE_NAME} "\\\${@:7}"
+cat "\\$2" | python3 ${runnerScriptPath} ./${PYTHON_JOB_FILE_NAME} "\\\${@:8}"
 echo "\\$?"
 `,
 };
@@ -140,8 +142,9 @@ function getBuildFailInformantScriptCreationCommands(execPaths) {
  * @param {ExecutorPaths} execPaths
  * @returns
  */
-function getRunBuildScript(execPaths) {
+function getRunBuildScript(execPaths, homedir) {
     return `#!/bin/bash
+#SBATCH --output ${execPaths.outputsDirectoryWithHomeDir(homedir)}/runbuild-%j
 # the build & run script
 # takes care of caching as well
 
@@ -178,7 +181,7 @@ scheduleBuild () {
     thisBuildOutputPath="\\$outputsPath"/IVIS-build-"\\$buildId".out
     # cleanup script also sets cached flag and removes the build lock
     local buildFinishId
-    buildFinishId=\\$( sbatch --parsable --output=/dev/null --dependency=afterany:"\\$buildId" ${execPaths.buildOutputCleanScriptPath()} "\\$thisBuildOutputPath" "\\$cacheValidityGuard" "\\$cacheRecordPath")
+    buildFinishId=\\$( sbatch --parsable --output=/dev/null --dependency=afterany:"\\$buildId" ${execPaths.buildOutputCleanScriptPath()} "\\$thisBuildOutputPath" "\\$cacheValidityGuard" "\\$cacheRecordPath" )
     echo "\\$buildFinishId"
 }
 
@@ -218,15 +221,15 @@ fi
 sbatch --parsable \\$dependSwitch --job-name="\\$runJobName" "\\$startScriptPath" \\
 "\\$taskDirectory" "\\$pathToRunInput" "\\$thisBuildOutputPath" \\
 ${execPaths.buildFailInformantScriptPath()} \\
-"\\$failEvType" "\\$runId" \\
+"\\$failEvType" "\\$runId" "${execPaths.outputsDirectoryWithHomeDir(homedir)}/runbuild-\\$SLURM_JOB_ID" \\
 ${config.tasks.maxRunOutputBytes} "\\$buffTimeSecs" ${config.www.trustedUrlBase}/rest/remote/emit "\\$outEvType" "\\$failEvType" "\\$succEvType" \\
 ${config.www.trustedUrlBase}/rest/remote/status ${RemoteRunState.RUN_FAIL} ${RemoteRunState.SUCCESS} ${execPaths.certPath()} ${execPaths.certKeyPath()} "\\$runId" \\
 ${RemoteRunState.RUNNING} > "\\$idMappingPath"
 `;
 }
 
-function getRunBuildScriptCreationCommands(execPaths) {
-    return createScriptHelper(execPaths.runBuildScriptPath(), getRunBuildScript(execPaths));
+function getRunBuildScriptCreationCommands(execPaths, homedir) {
+    return createScriptHelper(execPaths.runBuildScriptPath(), getRunBuildScript(execPaths, homedir));
 }
 
 function getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype) {
