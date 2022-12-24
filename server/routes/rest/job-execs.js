@@ -5,7 +5,7 @@ const jobExecs = require('../../models/job-execs');
 const router = require('../../lib/router-async').create();
 const { MachineTypeParams } = require('../../../shared/remote-run');
 const interoperableErrors = require('../../../shared/interoperable-errors');
-const {castToInteger} = require('../../lib/helpers');
+const { castToInteger } = require('../../lib/helpers');
 
 router.postAsync('/job-exec-table', passport.loggedIn, async (req, res) => {
     return res.json(await jobExecs.listDTAjax(req.context, req.body));
@@ -29,6 +29,9 @@ router.deleteAsync('/job-executors/:execId', passport.loggedIn, async (req, res)
     return res.json(await jobExecs.remove(req.context, castToInteger(req.params.execId)));
 });
 
+router.deleteAsync('/job-executors/:execId/force', passport.loggedIn, async (req, res) => {
+    return res.json(await jobExecs.removeForced(req.context, castToInteger(req.params.execId)));
+});
 
 router.postAsync('/job-executors', passport.loggedIn, passport.csrfProtection, async (req, res) => {
     return res.json(await jobExecs.create(req.context, req.body));

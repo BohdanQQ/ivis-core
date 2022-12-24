@@ -15,12 +15,12 @@ const log = require('../lib/log');
 const { getAdminContext } = require('../lib/context-helpers');
 const LOG_ID = 'job-execs';
 const {
-    createNewPoolParameters,
     registerPoolRemoval,
     getVcn
 } = require('../lib/pools/oci/basic/global-state');
 const { createOCIBasicPool } = require('../lib/pools/oci/basic/oci-basic');
 const slurm = require('../lib/pools/slurm/slurm');
+const { RunStatus } = require('../../shared/jobs');
 
 const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
@@ -275,14 +275,27 @@ async function updateWithConsistencyCheck(context, executor) {
 
 }
 
+async function getRunsByExecutor(executorId) {
+    return knex('job_runs')
+        .innerJoin('jobs', 'job_runs.job', 'jobs.id')
+        .where('jobs.executor_id', executorId).select('job_runs.id', 'job_runs.status');
+}
+
 const executorDestructor = {
-    [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => { },
-    [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
-        await registerPoolRemoval({ subnetMask: filteredEntity.state.subnetMask });
+    [MachineTypes.REMOTE_RUNNER_AGENT]: async (executor, tx) => { },
+    [MachineTypes.OCI_BASIC]: async (executor, tx) => {
+        await registerPoolRemoval({ subnetMask: executor.state.subnetMask });
     },
-    [MachineTypes.SLURM_POOL]: async () => {
-        // TODO
-        console.log('remove pool SLURM');
+    [MachineTypes.SLURM_POOL]: async (executor) => {
+        const runStopPromises = (await getRunsByExecutor(executor.id)).map(run => { return { id: run.id, status: run.status } })
+            .filter(run => run.status !== RunStatus.FAILED && run.status !== RunStatus.SUCCESS)
+            .map(run => slurm.stop(executor, run.id));
+        try {
+            await Promise.all(runStopPromises);
+            await slurm.removePool(executor);
+        } catch (err) {
+            throw new Error(`SLURM pool removal failed, please stop all running jobs and remove the executor manually, error: ${err.toString()}`);
+        }
     }
 }
 
@@ -294,16 +307,51 @@ const executorDestructor = {
  */
 async function remove(context, id) {
     enforce(id !== 1, 'Local executor cannot be deleted');
+    const exec = await getById(context, id, false);
+    enforce(exec.status !== ExecutorStatus.PROVISIONING, 'Please wait until executor creation finishes');
+    try {
+        await updateExecStatus(exec.id, ExecutorStatus.PROVISIONING);
+        await knex.transaction(async tx => {
+            await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
+
+            remoteCert.tryRemoveCertificate(id);
+
+            await executorDestructor[exec.type](exec, tx);
+
+            await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
+            await tx(EXEC_TABLE).where('id', id).del();
+        });
+    }
+    catch (err) {
+        if (exec.status === ExecutorStatus.FAIL) {
+            await appendToLogById(id, '\nWARNING: REMOVAL OF A FAILED EXECUTOR MAY FAIL BECAUSE THE INITIALIZATION HAS LEFT THE EXECUTOR IN ONLY PARTIALLY CORRECT STATE\n');
+        }
+        await logErrorToExecutor(id, 'pool removal error:', err);
+        await updateExecStatus(id, ExecutorStatus.FAIL);
+        await knex('jobs').where('executor_id', id).update({ executor_id: 1 });
+        remoteCert.tryRemoveCertificate(id);
+        throw new interoperableErrors.InteroperableError(`Removal of an executor failed: ${err.toString()}`);
+    }
+}
+
+/**
+ * FORCIBLY remove job executor. THERE IS ONLY ONE REASON TO CALL THIS FUNCTION
+ * @param context
+ * @param id the primary key of the executor
+ * @returns {Promise<void>}
+ */
+async function removeForced(context, id) {
+    enforce(id !== 1, 'Local executor cannot be deleted');
+    const exec = await getById(context, id, false);
     await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
-
-        // TODO: decide what to do here - maybe stop pending runs addressed to the remote executor? (remove from work queue) 
-        // disable jobs?
+        try {
+            await executorDestructor[exec.type](exec, tx);
+        }
+        catch (err) {
+            // ignore since removal is forced
+        }
         remoteCert.tryRemoveCertificate(id);
-        const exec = await getById(context, id, false);
-
-        await executorDestructor[exec.type](exec, tx);
-
         await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
         await tx(EXEC_TABLE).where('id', id).del();
     });
@@ -339,5 +387,5 @@ async function appendToLogById(id, toAppend) {
 }
 
 module.exports = {
-    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById
+    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById, removeForced
 }

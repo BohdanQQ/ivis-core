@@ -269,6 +269,21 @@ export function tableAddDeleteButton(actions, owner, perms, deleteUrl, name, del
     }
 }
 
+export function tableAddRestActionButtonWithDefaultErrorHandler(actions, owner, action, button, title, message, actionInProgressMsg, actionDoneMsg) {
+    async function onErrorAsync(err) {
+        if (err instanceof interoperableErrors.DependencyPresentError) {
+            owner.setFlashMessage('danger', _getDependencyErrorMessage(err, t, name));
+            window.scrollTo(0, 0); // This is to scroll up because the flash message appears on top and it's quite misleading if the delete fails and the message is not in the viewport
+            _hide(owner);
+        } else {
+            throw err;
+        }
+    }
+
+    tableAddRestActionButton(actions, owner, action, button, title, message, actionInProgressMsg, actionDoneMsg, onErrorAsync);
+}
+
+
 export function tableAddRestActionButton(actions, owner, action, button, title, message, actionInProgressMsg, actionDoneMsg, onErrorAsync) {
     const t = owner.props.t;
 

@@ -298,6 +298,19 @@ async function createSlurmPool(executor, certificateGeneratorFunction) {
     });
 }
 
+/**
+ * Removes the executor from the SLURM cluster. This action is a forceful act which
+ * does not care about any running jobs. The executor is purged without any checks
+ * so make sure you've done them all 
+ * @param {object} executor 
+ */
+async function removePool(executor) {
+    const execPaths = new ExecutorPaths(executor.id);
+    await sshWrapper(executor, async (commandExecutor) => {
+        await commandExecutor.execute(`srun rm -rf ${execPaths.rootDirectory()}`);
+    });
+}
+
 module.exports = {
-    status, run, stop, removeRun, createSlurmPool,
+    status, run, stop, removeRun, createSlurmPool, removePool
 };

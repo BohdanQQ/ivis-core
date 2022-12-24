@@ -9,6 +9,7 @@ import {
     Toolbar,
     withPageHelpers
 } from "../../lib/page";
+import axiosWrapper from "../../lib/axios";
 import {Icon} from "../../lib/bootstrap-components";
 import {
     withAsyncErrorHandler,
@@ -17,6 +18,7 @@ import {
 import {checkPermissions} from "../../lib/permissions";
 import {
     tableAddDeleteButton,
+    tableAddRestActionButtonWithDefaultErrorHandler,
     tableRestActionDialogRender,
     tableRestActionDialogInit
 } from "../../lib/modals";
@@ -110,7 +112,17 @@ export default class List extends Component {
                     }
 
                     tableAddDeleteButton(actions, this, perms, `rest/job-executors/${data[0]}`, data[1], t('Deleting job executor ...'), t('Job executor deleted'));
-
+                    
+                    if (perms.includes('delete')) {
+                        tableAddRestActionButtonWithDefaultErrorHandler(actions, this, {
+                            method: axiosWrapper.delete,
+                            url: `rest/job-executors/${data[0]}/force`,
+                        }, {
+                            icon: 'exclamation-triangle',
+                            label: 'Force Delete',
+                        }, t('Forced Delete of a job executor'), t('This action is dangeous and could leak remote resources. Make sure you basolutely HAVE to do this.\n The only reason to execute this action is for example removal of a badly initialized/removed executor. Even then you have to make sure there are not any remote resources left to be destroyed/unallocated.\nAre you still ABSOLUTELY SURE you have to do this?'), t('Deleting job executor ...'), t('Job executor deleted'));
+                    }
+                    
 
                     return {refreshTimeout, actions};
                 }
