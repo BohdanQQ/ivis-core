@@ -1,8 +1,7 @@
-'use strict';
-
 const { getRemoteHandler } = require('../../lib/remote-executor-comms');
 const log = require('../../lib/log');
-const LOG_ID = "remote-handler";
+
+const LOG_ID = 'remote-handler';
 
 function getHandlerChecked(type) {
     const handler = getRemoteHandler(type);
@@ -25,5 +24,5 @@ async function handleStop(executionMachine, runId, coreSystemEmission) {
 }
 
 module.exports = {
-    handleRun, handleStop
-}
+    handleRun, handleStop,
+};

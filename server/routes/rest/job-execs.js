@@ -13,7 +13,7 @@ router.postAsync('/job-exec-table', passport.loggedIn, async (req, res) => {
 
 router.getAsync('/job-executor-params/:type', passport.loggedIn, async (req, res) => {
     if (!Object.keys(MachineTypeParams).includes(req.params.type)) {
-        throw new interoperableErrors.NotFoundError("This executor type does not exist");
+        throw new interoperableErrors.NotFoundError('This executor type does not exist');
     }
     return res.json(MachineTypeParams[req.params.type]);
 });
@@ -49,5 +49,4 @@ router.getAsync('/job-executors/:execId/certs', passport.loggedIn, async (req, r
     return res.json(await jobExecs.getAllCerts(req.context, castToInteger(req.params.execId)));
 });
 
-
-module.exports = router
+module.exports = router;

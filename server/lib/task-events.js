@@ -12,11 +12,11 @@ const EventTypes = {
     SUCCESS: 'success',
     ACCESS_TOKEN: 'access_token',
     ACCESS_TOKEN_REFRESH: 'access_token_refresh',
-    REMOTE_STOP_FROM_LOCAL_SOURCE: 'remote_stop_local'
-}
+    REMOTE_STOP_FROM_LOCAL_SOURCE: 'remote_stop_local',
+};
 
 function getOutputEventType(runId) {
-    return `run/${runId}/${EventTypes.RUN_OUTPUT}`
+    return `run/${runId}/${EventTypes.RUN_OUTPUT}`;
 }
 
 function getStopEventType(runId) {
@@ -34,7 +34,7 @@ function getSuccessEventType(runId) {
 /** extracts the string representation of run id from an event type (OUTPUT, STOP, FAIL, SUCCESS only) */
 function getRunIdFromEventType(type) {
     const etRe = RegExp('run\/(?<runId>[0-9]+)\/', 'g');
-    let match = etRe.exec(type);
+    const match = etRe.exec(type);
     return match === null ? null : match.groups.runId;
 }
 
@@ -45,5 +45,5 @@ module.exports = {
     getFailEventType,
     getSuccessEventType,
     emitter,
-    getRunIdFromEventType
-}
+    getRunIdFromEventType,
+};

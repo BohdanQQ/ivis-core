@@ -1,27 +1,26 @@
-'use strict';
-
-const knex = require('../lib/knex');
 const hasher = require('node-object-hash')();
+const knex = require('../lib/knex');
 const { enforce, filterObject } = require('../lib/helpers');
 const dtHelpers = require('../lib/dt-helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
 const namespaceHelpers = require('../lib/namespace-helpers');
 const shares = require('./shares');
-const { MachineTypes, MachineTypeParams, ExecutorStatus, ExecutorStateDefaults } = require('../../shared/remote-run');
-const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'namespace', 'status']);
-const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespace']);
+const {
+    MachineTypes, MachineTypeParams, ExecutorStatus, ExecutorStateDefaults,
+} = require('../../shared/remote-run');
 const remoteCert = require('../lib/remote-certificates');
 const log = require('../lib/log');
 const { getAdminContext } = require('../lib/context-helpers');
-const LOG_ID = 'job-execs';
 const {
     registerPoolRemoval,
-    getVcn
 } = require('../lib/pools/oci/basic/global-state');
 const { createOCIBasicPool } = require('../lib/pools/oci/basic/oci-basic');
 const slurm = require('../lib/pools/slurm/slurm');
 const { RunStatus } = require('../../shared/jobs');
 
+const LOG_ID = 'job-execs';
+const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'namespace', 'status']);
+const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespace']);
 const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
 function dbFieldName(name) {
@@ -29,14 +28,13 @@ function dbFieldName(name) {
 }
 
 const columns = [
-    dbFieldName('id'), dbFieldName('name'), dbFieldName('description'), dbFieldName('type'), 'namespaces.name', dbFieldName('status')
+    dbFieldName('id'), dbFieldName('name'), dbFieldName('description'), dbFieldName('type'), 'namespaces.name', dbFieldName('status'),
 ];
 
-
 function getQueryFun() {
-    return builder => builder
+    return (builder) => builder
         .from(EXEC_TABLE)
-        .innerJoin('namespaces', 'namespaces.id', dbFieldName('namespace'))
+        .innerJoin('namespaces', 'namespaces.id', dbFieldName('namespace'));
 }
 
 async function listDTAjax(context, params) {
@@ -45,10 +43,9 @@ async function listDTAjax(context, params) {
         [{ entityTypeId: 'jobExecutor', requiredOperations: ['view'] }],
         params,
         getQueryFun(),
-        columns
+        columns,
     );
 }
-
 
 async function logErrorToExecutor(executorId, precedingMessage, error) {
     const errMsg = `${precedingMessage}, error:\n${error.toString()}`;
@@ -63,32 +60,31 @@ async function generateCertificates(executor, ip, hostname, tx) {
     }
     const certHexSerial = await remoteCert.createRemoteExecutorCertificate(executor, ip, hostname);
     if (certHexSerial === null) {
-        throw new Error("Certificate creation failed");
+        throw new Error('Certificate creation failed');
     }
 
     const certDecSerialString = BigInt(`0x${certHexSerial}`).toString();
-    await tx(EXEC_TABLE).update({ 'cert_serial': certDecSerialString }).where('id', executor.id);
+    await tx(EXEC_TABLE).update({ cert_serial: certDecSerialString }).where('id', executor.id);
 }
 
 async function updateExecStatus(execId, status, tx) {
     if (!tx) {
         tx = knex;
     }
-    return await tx(EXEC_TABLE).update({ 'status': status }).where('id', execId);
+    return await tx(EXEC_TABLE).update({ status }).where('id', execId);
 }
 
-/** 
- * each call will be awaited => await only for reasonable time periods OR use the exexutor status to update the user 
- * the function is allowed and expected to throw exceptions if the executor is not ready when the function returns  
+/**
+ * each call will be awaited => await only for reasonable time periods OR use the exexutor status to update the user
+ * the function is allowed and expected to throw exceptions if the executor is not ready when the function returns
  */
 const executorInitializer = {
     [MachineTypes.REMOTE_RUNNER_AGENT]: async (filteredEntity, tx) => {
         try {
             await generateCertificates(filteredEntity, filteredEntity.parameters.ip_address, filteredEntity.parameters.hostname, tx);
-        }
-        catch (error) {
+        } catch (error) {
             remoteCert.tryRemoveCertificate(filteredEntity.id);
-            await logErrorToExecutor(filteredEntity.id, "Error when creating certificates", error);
+            await logErrorToExecutor(filteredEntity.id, 'Error when creating certificates', error);
             await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL, tx);
             return;
         }
@@ -98,10 +94,9 @@ const executorInitializer = {
     [MachineTypes.REMOTE_POOL]: async (filteredEntity, tx) => {
         try {
             await generateCertificates(filteredEntity, filteredEntity.parameters.ip_address, filteredEntity.parameters.hostname, tx);
-        }
-        catch (error) {
+        } catch (error) {
             remoteCert.tryRemoveCertificate(filteredEntity.id);
-            await logErrorToExecutor(filteredEntity.id, "Error when creating certificates", error);
+            await logErrorToExecutor(filteredEntity.id, 'Error when creating certificates', error);
             await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL, tx);
             return;
         }
@@ -112,12 +107,11 @@ const executorInitializer = {
         (async () => {
             let error = null;
             try {
-                const vcn = await getVcn();
                 log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
                 const state = await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters, (ip) => generateCertificates(filteredEntity, ip, null, null));
-                let stateToSave = { ...state };
+                const stateToSave = { ...state };
                 delete stateToSave.error;
-                await knex(EXEC_TABLE).update({ 'state': JSON.stringify(stateToSave) }).where('id', filteredEntity.id);
+                await knex(EXEC_TABLE).update({ state: JSON.stringify(stateToSave) }).where('id', filteredEntity.id);
                 if (state.error !== null) {
                     throw state.error;
                 }
@@ -126,27 +120,27 @@ const executorInitializer = {
             } finally {
                 if (error === null) {
                     await updateExecStatus(filteredEntity.id, ExecutorStatus.READY);
-                    return;
+                } else {
+                    await logErrorToExecutor(filteredEntity.id, 'Cannot create OCI pool', error);
+                    log.error(error);
+                    await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
                 }
-                await logErrorToExecutor(filteredEntity.id, "Cannot create OCI pool", error);
-                log.error(error);
-                await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
             }
         })();
         // rough WIP outline
         // compartmentId, tenancyId
         // Global state:        vnic, subnet couners
         // Executor state:      vm names, subnet name, ip adds?
-        // Executor parameters: vm count, tenancy, compartment, homogenous shape, [if shape flexible] shape config 
+        // Executor parameters: vm count, tenancy, compartment, homogenous shape, [if shape flexible] shape config
         // pregenerate vm names     (timestamp, displayName field)
         // pregenerate subnet name  (book-keeping the limits?)
         // pregenerate subnet values        ---- || -----
         // create master vm => init scheduler on vm
         // OCI: provision resource
-        // SSH: provision pool sw 
+        // SSH: provision pool sw
         // create pool vms (parallel) => init RJE on vm
         // OCI: provision resource
-        // SSH: provision pool sw 
+        // SSH: provision pool sw
         // check pool (send vm names/public/private IPs?)
         // impl: ping pool members on remote executor ports
         // set status READY
@@ -163,14 +157,14 @@ const executorInitializer = {
             } finally {
                 if (error === null) {
                     await updateExecStatus(filteredEntity.id, ExecutorStatus.READY);
-                    return;
+                } else {
+                    await logErrorToExecutor(filteredEntity.id, 'Cannot create SLURM pool', error);
+                    log.error(error);
+                    await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
                 }
-                await logErrorToExecutor(filteredEntity.id, "Cannot create SLURM pool", error);
-                log.error(error);
-                await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
             }
-        })()
-    }
+        })();
+    },
 };
 
 /**
@@ -180,11 +174,11 @@ const executorInitializer = {
  * @returns {Promise<number>} id of the created job
  */
 async function create(context, executor) {
-    return await knex.transaction(async tx => {
+    return await knex.transaction(async (tx) => {
         await shares.enforceEntityPermissionTx(tx, context, 'namespace', executor.namespace, 'createExec');
         await namespaceHelpers.validateEntity(tx, executor);
 
-        let filteredEntity = filterObject(executor, allowedKeys);
+        const filteredEntity = filterObject(executor, allowedKeys);
         const jsonParams = filteredEntity.parameters;
         filteredEntity.parameters = JSON.stringify(filteredEntity.parameters);
         filteredEntity.state = JSON.stringify(ExecutorStateDefaults[executor.type]);
@@ -204,11 +198,10 @@ async function create(context, executor) {
 
         try {
             await executorInitializer[filteredEntity.type](filteredEntity, tx);
-        }
-        catch (error) {
-            await logErrorToExecutor(filteredEntity.id, "Executor Initializer failed", error);
+        } catch (error) {
+            await logErrorToExecutor(filteredEntity.id, 'Executor Initializer failed', error);
             await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
-            throw new interoperableErrors.ServerValidationError("Error when initializing the executor");
+            throw new interoperableErrors.ServerValidationError('Error when initializing the executor');
         }
 
         return id;
@@ -226,7 +219,7 @@ function hash(entity) {
  * @returns {Promise<Object>}
  */
 async function getById(context, id, includePermissions = true) {
-    return await knex.transaction(async tx => {
+    return await knex.transaction(async (tx) => {
         const exec = await tx(EXEC_TABLE).where('id', id).first();
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'view');
         exec.parameters = JSON.parse(exec.parameters);
@@ -247,7 +240,7 @@ async function getById(context, id, includePermissions = true) {
  */
 async function updateWithConsistencyCheck(context, executor) {
     enforce(executor.id !== 1, 'Local executor cannot be changed');
-    await knex.transaction(async tx => {
+    await knex.transaction(async (tx) => {
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, executor.id, 'edit');
 
         const existing = await tx(EXEC_TABLE).where('id', executor.id).first();
@@ -264,7 +257,6 @@ async function updateWithConsistencyCheck(context, executor) {
         await namespaceHelpers.validateEntity(tx, executor);
         await namespaceHelpers.validateMove(context, executor, existing, EXEC_TYPEID, 'createExec', 'delete');
 
-
         const filteredEntity = filterObject(executor, allowedKeysUpdate);
         filteredEntity.parameters = JSON.stringify(filteredEntity.parameters);
 
@@ -272,7 +264,6 @@ async function updateWithConsistencyCheck(context, executor) {
 
         await shares.rebuildPermissionsTx(tx, { entityTypeId: EXEC_TYPEID, entityId: executor.id });
     });
-
 }
 
 async function getRunsByExecutor(executorId) {
@@ -287,17 +278,17 @@ const executorDestructor = {
         await registerPoolRemoval({ subnetMask: executor.state.subnetMask });
     },
     [MachineTypes.SLURM_POOL]: async (executor) => {
-        const runStopPromises = (await getRunsByExecutor(executor.id)).map(run => { return { id: run.id, status: run.status } })
-            .filter(run => run.status !== RunStatus.FAILED && run.status !== RunStatus.SUCCESS)
-            .map(run => slurm.stop(executor, run.id));
+        const runStopPromises = (await getRunsByExecutor(executor.id)).map((run) => ({ id: run.id, status: run.status }))
+            .filter((run) => run.status !== RunStatus.FAILED && run.status !== RunStatus.SUCCESS)
+            .map((run) => slurm.stop(executor, run.id));
         try {
             await Promise.all(runStopPromises);
             await slurm.removePool(executor);
         } catch (err) {
             throw new Error(`SLURM pool removal failed, please stop all running jobs and remove the executor manually, error: ${err.toString()}`);
         }
-    }
-}
+    },
+};
 
 /**
  * Remove job executor.
@@ -311,7 +302,7 @@ async function remove(context, id) {
     enforce(exec.status !== ExecutorStatus.PROVISIONING, 'Please wait until executor creation finishes');
     try {
         await updateExecStatus(exec.id, ExecutorStatus.PROVISIONING);
-        await knex.transaction(async tx => {
+        await knex.transaction(async (tx) => {
             await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
 
             remoteCert.tryRemoveCertificate(id);
@@ -321,8 +312,7 @@ async function remove(context, id) {
             await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
             await tx(EXEC_TABLE).where('id', id).del();
         });
-    }
-    catch (err) {
+    } catch (err) {
         if (exec.status === ExecutorStatus.FAIL) {
             await appendToLogById(id, '\nWARNING: REMOVAL OF A FAILED EXECUTOR MAY FAIL BECAUSE THE INITIALIZATION HAS LEFT THE EXECUTOR IN ONLY PARTIALLY CORRECT STATE\n');
         }
@@ -343,12 +333,11 @@ async function remove(context, id) {
 async function removeForced(context, id) {
     enforce(id !== 1, 'Local executor cannot be deleted');
     const exec = await getById(context, id, false);
-    await knex.transaction(async tx => {
+    await knex.transaction(async (tx) => {
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
         try {
             await executorDestructor[exec.type](exec, tx);
-        }
-        catch (err) {
+        } catch (err) {
             // ignore since removal is forced
         }
         remoteCert.tryRemoveCertificate(id);
@@ -358,34 +347,33 @@ async function removeForced(context, id) {
 }
 
 async function getAllCerts(context, id) {
-    return await knex.transaction(async tx => {
+    return await knex.transaction(async (tx) => {
         await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'viewCerts');
         try {
             const {
                 cert,
-                key
+                key,
             } = remoteCert.getExecutorCertKey(id);
             return {
                 ca: remoteCert.getRemoteCACert(),
                 cert,
-                key
-            }
-        }
-        catch (err) {
+                key,
+            };
+        } catch (err) {
             log.verbose(LOG_ID, 'error when getting certs', err);
             // rethrow different exception to not leak certificate-key paths / possibly contents
-            throw new interoperableErrors.NotFoundError("Certificates not found");
+            throw new interoperableErrors.NotFoundError('Certificates not found');
         }
     });
 }
 
 async function appendToLogById(id, toAppend) {
-    return await knex.transaction(async tx => {
-        const { log } = await getById(getAdminContext(), id, false);
-        await tx(EXEC_TABLE).update({ 'log': `${log}\n${toAppend}` }).where('id', id);
+    return await knex.transaction(async (tx) => {
+        const { executorLog } = await getById(getAdminContext(), id, false);
+        await tx(EXEC_TABLE).update({ log: `${executorLog}\n${toAppend}` }).where('id', id);
     });
 }
 
 module.exports = {
-    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById, removeForced
-}
+    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById, removeForced,
+};
