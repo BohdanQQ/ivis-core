@@ -133,14 +133,8 @@ async function run(executor, archivePath, runConfig, type, subtype) {
 async function stop(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
     await sshWrapper(executor, async (commandExecutor) => {
-        // SLURMSSH again, this connection can be shared and the enitre thing can be extracted into a script
-        // that is, if a job can cancel other job!
-        const sbatchJobId = await getIdMapping(runPaths, commandExecutor);
-        if (sbatchJobId === null) {
-            return;
-        }
         try {
-            await commandExecutor.execute(`scancel ${sbatchJobId}`);
+            await commandExecutor.execute(`srun ${scripts.getRunStopInvocation(runPaths)}`);
         } catch (err) {
             // pass - job is not running
             return;
@@ -279,6 +273,7 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     commands.push(...scripts.getBuildFailInformantScriptCreationCommands(execPaths));
     commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths, homedir));
     commands.push(...scripts.getRunRemoveScriptCreationCommands(execPaths));
+    commands.push(...scripts.getRunStopScriptCreationCommands(execPaths));
     commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
     // waits for the result
     // SLURMSSH - nice... use this for other commands - again && delimited groups

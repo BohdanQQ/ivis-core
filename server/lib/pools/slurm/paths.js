@@ -102,6 +102,10 @@ class ExecutorPaths {
     runRemoveScriptPath() {
         return `${this.remoteUtilsRepoDirectory()}/__run_remove.sh`;
     }
+
+    runStopScriptPath() {
+        return `${this.remoteUtilsRepoDirectory()}/__run_stop.sh`;
+    }
 }
 
 class TaskPaths {

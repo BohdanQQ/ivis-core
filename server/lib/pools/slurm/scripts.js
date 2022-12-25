@@ -283,6 +283,29 @@ function getRunRemoveScriptCreationCommands(execPaths) {
     return createScriptHelper(execPaths.runRemoveScriptPath(), getRunRemoveScript(execPaths));
 }
 
+function getRunStopScript() {
+    return `#!/bin/bash
+runIdtoSlurmIdMappingPath=\\$1; shift
+slurmRunId=\\$( cat \\$runIdtoSlurmIdMappingPath || echo "null" )
+if [[ \\$slurmRunId != "null" ]]; then 
+    scancel \\$slurmRunId
+fi
+`;
+}
+
+/**
+ *
+ * @param {RunPaths} runPaths
+ * @returns
+ */
+function getRunStopInvocation(runPaths) {
+    return `${runPaths.execPaths.runStopScriptPath()} ${runPaths.idMappingPath()}`;
+}
+
+function getRunStopScriptCreationCommands(execPaths) {
+    return createScriptHelper(execPaths.runStopScriptPath(), getRunStopScript());
+}
+
 module.exports = {
     ScriptTypes,
     getScriptCreationCommands,
@@ -292,5 +315,7 @@ module.exports = {
     getBuildCleanScriptCreationCommands,
     getRunRemoveScriptCreationCommands,
     getRunRemoveInvocation,
+    getRunStopScriptCreationCommands,
+    getRunStopInvocation,
     createFileCommand,
 };
