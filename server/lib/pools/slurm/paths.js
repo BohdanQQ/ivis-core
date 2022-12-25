@@ -59,6 +59,16 @@ class ExecutorPaths {
         return `${this.outputsDirectory()}/IVIS-run-"\\$${slurmJobIdVariableName}"-"\\$${runIdVariableName}".out`;
     }
 
+    runStdOutShellExpansion(slurmJobIdVariableName) {
+        return `${this.outputsDirectory()}/IVIS-run-"\\$${slurmJobIdVariableName}".stdout`;
+    }
+
+    runStdErrShellExpansion(slurmJobIdVariableName) {
+        return `${this.outputsDirectory()}/IVIS-run-"\\$${slurmJobIdVariableName}".stderr`;}
+
+    runFinishedAtShellExpansion(slurmJobIdVariableName) {
+        return `${this.outputsDirectory()}/IVIS-run-"\\$${slurmJobIdVariableName}".timestamp`;}
+
     buildOutputSbatchFormatPath(homedir) {
         return `${this.outputsDirectoryWithHomeDir(homedir)}/IVIS-build-%j.out`;
     }
@@ -106,6 +116,10 @@ class ExecutorPaths {
     runStopScriptPath() {
         return `${this.remoteUtilsRepoDirectory()}/__run_stop.sh`;
     }
+
+    runStatusScriptPath() {
+        return `${this.remoteUtilsRepoDirectory()}/__run_status.sh`;
+    }
 }
 
 class TaskPaths {
@@ -148,6 +162,18 @@ class RunPaths {
 
     slurmOutputsPath(slurmJobId) {
         return `${this.execPaths.outputsDirectory()}/IVIS-run-${slurmJobId}-${this.runId}.out`;
+    }
+
+    runStdOutPath(slurmJobId) {
+        return `${this.execPaths.outputsDirectory()}/IVIS-run-${slurmJobId}.stdout`;
+    }
+
+    runStdErrPath(slurmJobId) {
+        return `${this.execPaths.outputsDirectory()}/IVIS-run-${slurmJobId}.stderr`;
+    }
+
+    runFinishedTimestampPath(slurmJobId) {
+        return `${this.execPaths.outputsDirectory()}/IVIS-run-${slurmJobId}.timestamp`;
     }
 
     inputsPath() {

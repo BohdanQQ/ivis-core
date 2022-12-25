@@ -20,16 +20,13 @@ async function sshConnectionFromExecutor(executor) {
     return ssh.makeReadySSHConnection(hostname, port, username, password);
 }
 
-async function getCommandOutput(executor, command) {
+/**
+ * @param {ssh.SSHConnection} executor 
+ * @param {string} command 
+ * @returns {string}
+ */
+async function getCommandOutput(executor, command,) {
     return (await executor.execute(command)).stdout.trim();
-}
-
-async function getIdMapping(runPaths, commandExecutor) {
-    try {
-        return await getCommandOutput(commandExecutor, `cat ${runPaths.idMappingPath()}`);
-    } catch (err) {
-        return null;
-    }
 }
 
 function getArchiveHash(archivePath, type, subtype) {
@@ -165,35 +162,35 @@ const slurmStateToIvisState = {
     NF: RemoteRunState.RUN_FAIL,
 };
 
-async function getRunSqueueStatus(slurmId, commandExecutor) {
+async function getRemoteRunStateState(commandExecutor, runPaths) {
     try {
-        const squeueState = await getCommandOutput(commandExecutor, `squeue --job ${slurmId} -o "%t" | sed -n 2p`);
-        const ivisState = slurmStateToIvisState[squeueState];
-        return ivisState === undefined ? null : ivisState;
+        const lines = (await getCommandOutput(commandExecutor, `srun ${scripts.getRunStatusInvocation(runPaths)}`)).split('\n');
+        if (lines.length < 2) {
+            log.error(LOG_ID, 'Status script should return 2-3 lines of output, only ', lines.length, 'given');
+            return null;
+        }
+        const [ runSlurmId, squeueStatus ] = lines;
+        const runFinishCode = lines[2];
+
+        // try interpret run status code
+        // this might be some bogus if the run has not yet finished
+        const statusCode = Number.parseInt(runFinishCode, 10);
+        
+        // try interpret squeue status
+        if (squeueStatus !== 'null') {
+            const mappedStatus = slurmStateToIvisState[squeueStatus];
+            if (mappedStatus) {
+                // if running, then the status code cannot be used...
+                return { slurmId: runSlurmId, state: mappedStatus, code: mappedStatus === RemoteRunState.RUNNING ? Number.NaN : statusCode };
+            } else {
+                throw new Error(`Unexpected squeue output! Got ${squeueStatus}, expected a valid squeue short status string`);
+            }
+        }
+        
+        return { slurmId: runSlurmId, state: statusCode === 0 ? RemoteRunState.SUCCESS : RemoteRunState.RUN_FAIL, code: statusCode };
     } catch (err) {
-        // TODO make sure request is repeated, log error
-        return null;
+        log.error(LOG_ID, err.toString());
     }
-}
-
-// returns RemoteRunState of a finieshed job, null if status cannot be determined
-async function resolveFinishedState(runPaths, slurmId, commandExecutor) {
-    const getStatusCodeCommand = `cat ${runPaths.slurmOutputsPath(slurmId)} | tail -n 1`;
-    let lastOutputLine = null;
-    try {
-        lastOutputLine = await getCommandOutput(commandExecutor, getStatusCodeCommand);
-    } catch (err) {
-        // TODO make sure request is repeated, log error
-        return null;
-    }
-
-    try {
-        const statusCode = Number.parseInt(lastOutputLine, 10);
-        return statusCode === 0 ? RemoteRunState.SUCCESS : RemoteRunState.RUN_FAIL;
-    } catch {
-        log.error(LOG_ID, 'Unexpected last line of run output. Expecting a number indicating the run exit code, got:', lastOutputLine);
-    }
-
     return null;
 }
 
@@ -204,24 +201,48 @@ async function resolveFinishedState(runPaths, slurmId, commandExecutor) {
  * @returns RemoteRunState of the run, null if the state cannot be determined (unknown/already finished run)
  */
 async function status(executor, runId) {
-    return sshWrapper(executor, async (commandExecutor) => {
-        const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
-
-        // SLURM SSH - share connection accross this function
-        // !!! all of the usage is reading command output !!! TODO
-        // check mapping
-        const slurmJobId = await getIdMapping(runPaths, commandExecutor);
-        if (slurmJobId === null) {
-            // no mapping -> return not found
-            return null;
+    const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
+    return await sshWrapper(executor, async (commandExecutor) => {
+        const fileContentsOrNull = async (path) => {
+            try {
+                const output = await getCommandOutput(commandExecutor, `srun cat ${path}`);
+                return output;
+            } catch (err) {
+                return null;
+            }
+        };
+        const trimLastLine = (state, numCode, data) => {
+            const lines = data.split('\n');
+            const lastLine = lines.pop();
+            if (lastLine === undefined) {
+                return lines.join('\n');
+            }
+            const isStateFinal = (state) => state === RemoteRunState.SUCCESS || state === RemoteRunState.RUN_FAIL;
+            // not EXACTLY correct, but good enough - remove last line if is a number, matches numCode (expected output code), and state is "finished" otherwise return it back
+            if (Number.isNaN(Number.parseInt(lastLine)) || !isStateFinal(state) || Number.parseInt(lastLine) !== numCode) {
+                lines.push(lastLine);
+            }
+            
+            return lines.join('\n');
+        };
+        const stateResult = await getRemoteRunStateState(commandExecutor, runPaths);
+        if (stateResult !== null) {
+            const { slurmId, state, code } = stateResult;
+            return {
+                status: state,
+                // STDOUT contains the status code as the last line
+                output: trimLastLine(state, code, await fileContentsOrNull(runPaths.runStdOutPath(slurmId))),
+                error:  await fileContentsOrNull(runPaths.runStdErrPath(slurmId)),
+                finished_at: Number.parseInt(await fileContentsOrNull(runPaths.runFinishedTimestampPath(slurmId))),
+            };
+        } else {
+            return {
+                status: null,
+                output: null,
+                error: null,
+                finished_at: null
+            };
         }
-
-        const state = await getRunSqueueStatus(slurmJobId, commandExecutor);
-        if (state === null) {
-            return resolveFinishedState(runPaths, slurmJobId, commandExecutor);
-        }
-
-        return state;
     });
 }
 
@@ -274,6 +295,7 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
     commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths, homedir));
     commands.push(...scripts.getRunRemoveScriptCreationCommands(execPaths));
     commands.push(...scripts.getRunStopScriptCreationCommands(execPaths));
+    commands.push(...scripts.getRunStatusScriptCreationCommands(execPaths));
     commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
     // waits for the result
     // SLURMSSH - nice... use this for other commands - again && delimited groups

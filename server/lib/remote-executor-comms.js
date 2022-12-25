@@ -136,10 +136,7 @@ async function handleSlurmRemove(executionMachine, runId) {
 }
 
 async function handleSlurmStatus(executionMachine, runId) {
-    const state = await slurm.status(executionMachine, runId);
-    return {
-        status: state ? state : RemoteRunState.RUN_FAIL
-    };
+    return await slurm.status(executionMachine, runId);
 }
 
 /**

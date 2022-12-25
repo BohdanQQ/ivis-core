@@ -4,10 +4,11 @@ const { getSuccessEventType, getOutputEventType, getFailEventType } = require('.
 const { RemoteRunState } = require('../../../../shared/remote-run');
 const { PythonSubtypes, defaultSubtypeKey } = require('../../../../shared/tasks');
 const { ExecutorPaths, RunPaths } = require('./paths');
+const JOB_ID_ENVVAR = 'SLURM_JOB_ID';
 // INIT script is expected to perform build output check and start the job execution if build succeeded
 const taskTypeRunScript = {
 // taskdir runInputPath buildOutputPath buildFailInformantPath runFailEmitTypeValue runId jobArgs
-    [TaskType.PYTHON]: (sbatchOutputPath, runnerScriptPath) => `#!/bin/bash
+    [TaskType.PYTHON]: (sbatchOutputPath, runnerScriptPath, execPaths) => `#!/bin/bash
 #SBATCH --output ${sbatchOutputPath}
 if [[ \\$3 != "nocheck" && -f \\$3 ]]; then
     # build failed because the build output is not cleaned up => call build fail informant
@@ -18,13 +19,13 @@ fi
 rm -f \\$7
 cd "\\$1"
 . ./.venv/bin/activate
-cat "\\$2" | python3 ${runnerScriptPath} ./${PYTHON_JOB_FILE_NAME} "\\\${@:8}"
-echo "\\$?"
+cat "\\$2" | python3 ${runnerScriptPath} ./${PYTHON_JOB_FILE_NAME} "\\\${@:8}" > ${execPaths.runStdOutShellExpansion(JOB_ID_ENVVAR)} 2> ${execPaths.runStdErrShellExpansion(JOB_ID_ENVVAR)}
+echo \\$( python3 -c "print(int(\\$( date +%s%N ) / 1000000))" ) > ${execPaths.runFinishedAtShellExpansion(JOB_ID_ENVVAR)}
 `,
 };
 
-function getPythonRunScript(sbatchOutputPath, runnerScriptPath) {
-    return taskTypeRunScript[TaskType.PYTHON](sbatchOutputPath, runnerScriptPath);
+function getPythonRunScript(sbatchOutputPath, runnerScriptPath, execPaths) {
+    return taskTypeRunScript[TaskType.PYTHON](sbatchOutputPath, runnerScriptPath, execPaths);
 }
 
 // INIT script is expected to write "build complete" on the last line of its (successful) output
@@ -95,7 +96,7 @@ const scriptSetup = {
     [TaskType.PYTHON]: {
         [ScriptTypes.RUN]: {
             pathGetter: (executorPaths) => `${executorPaths.remoteUtilsRepoDirectory()}/__python_start.sh`,
-            contentCreator: (executorPaths, homeDirectory) => getPythonRunScript(executorPaths.outputSbatchFormatPath(homeDirectory), `${executorPaths.remoteUtilsRepoDirectory()}/runner.py`),
+            contentCreator: (executorPaths, homeDirectory) => getPythonRunScript(executorPaths.outputSbatchFormatPath(homeDirectory), `${executorPaths.remoteUtilsRepoDirectory()}/runner.py`, executorPaths),
         },
         [ScriptTypes.INIT]: {
             pathGetter: (executorPaths) => `${executorPaths.remoteUtilsRepoDirectory()}/__python_init.sh`,
@@ -221,7 +222,7 @@ fi
 sbatch --parsable \\$dependSwitch --job-name="\\$runJobName" "\\$startScriptPath" \\
 "\\$taskDirectory" "\\$pathToRunInput" "\\$thisBuildOutputPath" \\
 ${execPaths.buildFailInformantScriptPath()} \\
-"\\$failEvType" "\\$runId" "${execPaths.outputsDirectoryWithHomeDir(homedir)}/runbuild-\\$SLURM_JOB_ID" \\
+"\\$failEvType" "\\$runId" "${execPaths.outputsDirectoryWithHomeDir(homedir)}/runbuild-\\$${JOB_ID_ENVVAR}" \\
 ${config.tasks.maxRunOutputBytes} "\\$buffTimeSecs" ${config.www.trustedUrlBase}/rest/remote/emit "\\$outEvType" "\\$failEvType" "\\$succEvType" \\
 ${config.www.trustedUrlBase}/rest/remote/status ${RemoteRunState.RUN_FAIL} ${RemoteRunState.SUCCESS} ${execPaths.certPath()} ${execPaths.certKeyPath()} "\\$runId" \\
 ${RemoteRunState.RUNNING} > "\\$idMappingPath"
@@ -256,16 +257,24 @@ function getRunBuildInvocation(taskType, runId, taskPaths, runPaths, cacheValidi
     return `${taskPaths.execPaths.runBuildScriptPath()} ${getRunBuildArgs(taskType, runId, taskPaths, runPaths, cacheValidityGuard, subtype).join(' ')}`;
 }
 
+/**
+ * @param {ExecutorPaths} execPaths 
+ * @returns 
+ */
 function getRunRemoveScript(execPaths) {
+const slurmIdVariable = 'jobId';
     return `#!/bin/bash
 runInputPath=\\$1; shift
 runIdMappingPath=\\$1; shift
 runId=\\$1; shift
 
-jobId=\\$( cat "\\$runIdMappingPath" || echo "null")
+${slurmIdVariable}=\\$( cat "\\$runIdMappingPath" || echo "null")
 rm -f "\\$runInputPath" "\\$runIdMappingPath"
-if [[ "\\$jobId" != "null" ]]; then
-    rm -f ${execPaths.slurmRunOutputShellExpansion('jobId', 'runId')}
+if [[ "\\$${slurmIdVariable}" != "null" ]]; then
+    rm -f ${execPaths.slurmRunOutputShellExpansion(slurmIdVariable, 'runId')} # remove run script output - comment this for debugging
+    rm -f ${execPaths.runStdOutShellExpansion(slurmIdVariable)}
+    rm -f ${execPaths.runStdErrShellExpansion(slurmIdVariable)}
+    rm -f ${execPaths.runFinishedAtShellExpansion(slurmIdVariable)}
 fi
 `;
 }
@@ -286,9 +295,9 @@ function getRunRemoveScriptCreationCommands(execPaths) {
 function getRunStopScript() {
     return `#!/bin/bash
 runIdtoSlurmIdMappingPath=\\$1; shift
-slurmRunId=\\$( cat \\$runIdtoSlurmIdMappingPath || echo "null" )
-if [[ \\$slurmRunId != "null" ]]; then 
-    scancel \\$slurmRunId
+slurmRunId=\\$( cat "\\$runIdtoSlurmIdMappingPath" || echo "null" )
+if [[ "\\$slurmRunId" != "null" ]]; then 
+    scancel "\\$slurmRunId"
 fi
 `;
 }
@@ -306,6 +315,43 @@ function getRunStopScriptCreationCommands(execPaths) {
     return createScriptHelper(execPaths.runStopScriptPath(), getRunStopScript());
 }
 
+function getRunStatusScript(execPaths) {
+    return `#!/bin/bash
+runIdtoSlurmIdMappingPath=\\$1; shift
+runId=\\$1; shift
+
+slurmRunId=\\$( cat "\\$runIdtoSlurmIdMappingPath" || echo "null" )
+if [[ "\\$slurmRunId" == "null" ]]; then 
+    echo "null"
+    echo "null"
+    echo "null"
+    exit
+fi
+
+squeueState=\\$( squeue --job "\\$slurmRunId" -o "%t" | sed -n 2p ) # somehow || echo "null" does not work here...
+if [[ "\\$squeueState" == "" ]]; then
+        squeueState="null"
+fi
+
+lastRunOutputLine=\\$( ( cat ${execPaths.runStdOutShellExpansion('slurmRunId')} || echo "null" ) | tail -n 1 )
+echo "\\$slurmRunId"
+echo "\\$squeueState"
+echo "\\$lastRunOutputLine"
+`;
+}
+
+/**
+ * @param {RunPaths} runPaths
+ * @returns
+ */
+function getRunStatusInvocation(runPaths) {
+    return `${runPaths.execPaths.runStatusScriptPath()} ${runPaths.idMappingPath()} ${runPaths.runId}`;
+}
+
+function getRunStatusScriptCreationCommands(execPaths) {
+    return createScriptHelper(execPaths.runStatusScriptPath(), getRunStatusScript(execPaths));
+}
+ 
 module.exports = {
     ScriptTypes,
     getScriptCreationCommands,
@@ -317,5 +363,7 @@ module.exports = {
     getRunRemoveInvocation,
     getRunStopScriptCreationCommands,
     getRunStopInvocation,
+    getRunStatusScriptCreationCommands,
+    getRunStatusInvocation,
     createFileCommand,
 };
