@@ -111,12 +111,12 @@ async function cleanUpdateRemoteRunFromStatus(state, runId, handler, executor) {
                 const run = await t('job_runs').where('id', runId).first();
                 // in db, the state should be queued or running
                 // if running -> dont update
-                // if queued -> update to running
+                // if scheduled -> update to running
                 // else dont update ... run has finished in the meantime
                 if (run.status === RunStatus.RUNNING) {
                     return;
                 }
-                else if (run.status === RunStatus.QUEUED) {
+                else if (run.status === RunStatus.SCHEDULED) {
                     await t('job_runs').where('id', runId).update({ status: state.status });
                     return;
                 }
