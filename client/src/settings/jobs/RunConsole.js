@@ -125,9 +125,9 @@ export default class RunConsole extends Component {
                 data: `ERROR: ${JSON.parse(e.data)}`
             });
             this.setState({
-                chunkCounter: this.state.chunkCounter + 1
+                chunkCounter: this.state.chunkCounter + 1,
+                runStatus: RunStatus.FAILED
             });
-            this.stop();
         };
     }
 
