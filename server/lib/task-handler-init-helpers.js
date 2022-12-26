@@ -3,7 +3,7 @@ const log = require('./log');
 const esClient = require('./elasticsearch');
 const { RunStatus } = require('../../shared/jobs');
 const { getRunExecutor } = require('../models/jobs');
-const remoteComms = require('../lib/remote-executor-comms');
+const remoteComms = require('./remote-executor-comms');
 const { MachineTypes, RemoteRunState } = require('../../shared/remote-run');
 const knex = require('./knex');
 const taskHandler = require('./task-handler');
@@ -28,7 +28,7 @@ async function init() {
         log.error(LOG_ID, err);
     }
     // the original first part of taskHandler.init() ENDS HERE
-    
+
     await taskHandler.init();
 }
 
@@ -41,7 +41,6 @@ async function initIndices() {
     let reachable = true;
     try {
         await esClient.ping();
-
     } catch (err) {
         log.error(LOG_ID, 'Creating index for job in elasticsearch failed, ES unreachable');
         reachable = false;
@@ -69,12 +68,12 @@ async function initIndices() {
 
 /**
  * Synchronizes local run state with remote run state. Removes remote run if needed.
- * 
+ *
  * @param {object} state remote run state as received from the remote executor
- * @param {number} runId 
- * @param {object} handler executor handler 
- * @param {object} executor 
- * @returns 
+ * @param {number} runId
+ * @param {object} handler executor handler
+ * @param {object} executor
+ * @returns
  */
 async function cleanUpdateRemoteRunFromStatus(state, runId, handler, executor) {
     if (state.status === RemoteRunState.SUCCESS || state.status === RemoteRunState.RUN_FAIL) {
@@ -177,4 +176,4 @@ async function cleanRuns() {
     }
 }
 
-module.exports.init = init
+module.exports.init = init;

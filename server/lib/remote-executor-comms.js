@@ -1,7 +1,7 @@
 const axios = require('axios');
 const https = require('https');
 const knex = require('./knex');
-const { MachineTypes, RemoteRunState } = require('../../shared/remote-run');
+const { MachineTypes } = require('../../shared/remote-run');
 const remoteCerts = require('./remote-certificates');
 const archiver = require('./task-archiver');
 const { RPS_PUBLIC_PORT } = require('./pools/oci/basic/rjr-setup');

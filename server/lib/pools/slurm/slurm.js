@@ -21,11 +21,11 @@ async function sshConnectionFromExecutor(executor) {
 }
 
 /**
- * @param {ssh.SSHConnection} executor 
- * @param {string} command 
+ * @param {ssh.SSHConnection} executor
+ * @param {string} command
  * @returns {string}
  */
-async function getCommandOutput(executor, command,) {
+async function getCommandOutput(executor, command) {
     return (await executor.execute(command)).stdout.trim();
 }
 
@@ -195,24 +195,23 @@ async function getRemoteRunStateState(commandExecutor, runPaths) {
             log.error(LOG_ID, 'Status script should return 2-3 lines of output, only ', lines.length, 'given');
             return null;
         }
-        const [ runSlurmId, squeueStatus ] = lines;
+        const [runSlurmId, squeueStatus] = lines;
         const runFinishCode = lines[2];
 
         // try interpret run status code
         // this might be some bogus if the run has not yet finished
         const statusCode = Number.parseInt(runFinishCode, 10);
-        
+
         // try interpret squeue status
         if (squeueStatus !== 'null') {
             const mappedStatus = slurmStateToIvisState[squeueStatus];
             if (mappedStatus) {
                 // if running, then the status code cannot be used...
                 return { slurmId: runSlurmId, state: mappedStatus, code: mappedStatus === RemoteRunState.RUNNING ? Number.NaN : statusCode };
-            } else {
-                throw new Error(`Unexpected squeue output! Got ${squeueStatus}, expected a valid squeue short status string`);
             }
+            throw new Error(`Unexpected squeue output! Got ${squeueStatus}, expected a valid squeue short status string`);
         }
-        
+
         return { slurmId: runSlurmId, state: statusCode === 0 ? RemoteRunState.SUCCESS : RemoteRunState.RUN_FAIL, code: statusCode };
     } catch (err) {
         log.error(LOG_ID, err.toString());
@@ -242,12 +241,12 @@ async function status(executor, runId) {
             if (lastLine === undefined) {
                 return lines.join('\n');
             }
-            const isStateFinal = (state) => state === RemoteRunState.SUCCESS || state === RemoteRunState.RUN_FAIL;
+            const isStateFinal = (runState) => runState === RemoteRunState.SUCCESS || runState === RemoteRunState.RUN_FAIL;
             // not EXACTLY correct, but good enough - remove last line if is a number, matches numCode (expected output code), and state is "finished" otherwise return it back
-            if (Number.isNaN(Number.parseInt(lastLine)) || !isStateFinal(state) || Number.parseInt(lastLine) !== numCode) {
+            if (Number.isNaN(Number.parseInt(lastLine, 10)) || !isStateFinal(state) || Number.parseInt(lastLine, 10) !== numCode) {
                 lines.push(lastLine);
             }
-            
+
             return lines.join('\n');
         };
         const stateResult = await getRemoteRunStateState(commandExecutor, runPaths);
@@ -259,17 +258,16 @@ async function status(executor, runId) {
             return {
                 status: state,
                 output: state === RemoteRunState.RUN_FAIL ? `Run failed with code ${code}\n\nError log:\n${stdErr}\n\nLog:\n${stdOut}` : stdOut,
-                error:  state === RemoteRunState.RUN_FAIL ? null : stdErr,
-                finished_at: Number.parseInt(await fileContentsOrNull(runPaths.runFinishedTimestampPath(slurmId))),
-            };
-        } else {
-            return {
-                status: null,
-                output: null,
-                error: null,
-                finished_at: null
+                error: state === RemoteRunState.RUN_FAIL ? null : stdErr,
+                finished_at: Number.parseInt(await fileContentsOrNull(runPaths.runFinishedTimestampPath(slurmId)), 10),
             };
         }
+        return {
+            status: null,
+            output: null,
+            error: null,
+            finished_at: null,
+        };
     });
 }
 

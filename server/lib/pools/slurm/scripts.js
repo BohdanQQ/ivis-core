@@ -3,11 +3,12 @@ const config = require('../../config');
 const { getSuccessEventType, getOutputEventType, getFailEventType } = require('../../task-events');
 const { RemoteRunState } = require('../../../../shared/remote-run');
 const { PythonSubtypes, defaultSubtypeKey } = require('../../../../shared/tasks');
-const { ExecutorPaths, RunPaths } = require('./paths');
+const { ExecutorPaths, RunPaths, TaskPaths } = require('./paths');
+
 const JOB_ID_ENVVAR = 'SLURM_JOB_ID';
 // INIT script is expected to perform build output check and start the job execution if build succeeded
 const taskTypeRunScript = {
-// taskdir runInputPath buildOutputPath buildFailInformantPath runFailEmitTypeValue runId jobArgs
+// taskdir runInputPath buildOutputPath buildFailInformantPath runFailEmitTypeValue runId runBuildOutputPath jobArgs
     [TaskType.PYTHON]: (sbatchOutputPath, runnerScriptPath, execPaths) => `#!/bin/bash
 #SBATCH --output ${sbatchOutputPath}
 if [[ \\$3 != "nocheck" && -f \\$3 ]]; then
@@ -332,7 +333,7 @@ function getRunBuildInvocation(taskType, runId, taskPaths, runPaths, cacheValidi
  * @returns {string}
  */
 function getRunRemoveScript(execPaths) {
-const slurmIdVariable = 'jobId';
+    const slurmIdVariable = 'jobId';
     return `#!/bin/bash
 runInputPath=\\$1; shift
 runIdMappingPath=\\$1; shift
@@ -425,7 +426,7 @@ function getRunStatusInvocation(runPaths) {
 function getRunStatusScriptCreationCommands(execPaths) {
     return createScriptHelper(execPaths.runStatusScriptPath(), getRunStatusScript(execPaths));
 }
- 
+
 module.exports = {
     ScriptTypes,
     getScriptCreationCommands,
