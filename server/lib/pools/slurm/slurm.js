@@ -253,11 +253,13 @@ async function status(executor, runId) {
         const stateResult = await getRemoteRunStateState(commandExecutor, runPaths);
         if (stateResult !== null) {
             const { slurmId, state, code } = stateResult;
+            const stdErr = await fileContentsOrNull(runPaths.runStdErrPath(slurmId));
+            // STDOUT contains the status code as the last line
+            const stdOut = trimLastLine(state, code, await fileContentsOrNull(runPaths.runStdOutPath(slurmId)));
             return {
                 status: state,
-                // STDOUT contains the status code as the last line
-                output: trimLastLine(state, code, await fileContentsOrNull(runPaths.runStdOutPath(slurmId))),
-                error:  await fileContentsOrNull(runPaths.runStdErrPath(slurmId)),
+                output: state === RemoteRunState.RUN_FAIL ? `Run failed with code ${code}\n\nError log:\n${stdErr}\n\nLog:\n${stdOut}` : stdOut,
+                error:  state === RemoteRunState.RUN_FAIL ? null : stdErr,
                 finished_at: Number.parseInt(await fileContentsOrNull(runPaths.runFinishedTimestampPath(slurmId))),
             };
         } else {
