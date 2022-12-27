@@ -273,7 +273,9 @@ async function getRunsByExecutor(executorId) {
 }
 
 const executorDestructor = {
-    [MachineTypes.REMOTE_RUNNER_AGENT]: async (executor, tx) => { },
+    [MachineTypes.REMOTE_RUNNER_AGENT]: async (executor, tx) => {
+        // nothing needs to be done
+    },
     [MachineTypes.OCI_BASIC]: async (executor, tx) => {
         await registerPoolRemoval({ subnetMask: executor.state.subnetMask });
     },
@@ -301,13 +303,14 @@ async function remove(context, id) {
     const exec = await getById(context, id, false);
     enforce(exec.status !== ExecutorStatus.PROVISIONING, 'Please wait until executor creation finishes');
     try {
+        // ensures no runs can be scheduled to this executor during its removal
         await updateExecStatus(exec.id, ExecutorStatus.PROVISIONING);
         await knex.transaction(async (tx) => {
             await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
 
-            remoteCert.tryRemoveCertificate(id);
-
             await executorDestructor[exec.type](exec, tx);
+
+            remoteCert.tryRemoveCertificate(id);
 
             await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
             await tx(EXEC_TABLE).where('id', id).del();

@@ -156,7 +156,6 @@ async function stop(executor, runId) {
             await commandExecutor.execute(`srun ${scripts.getRunStopInvocation(runPaths)}`);
         } catch (err) {
             // pass - job is not running
-
         }
     });
 }
