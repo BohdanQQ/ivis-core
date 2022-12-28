@@ -2,7 +2,7 @@ const config = require('../../../config');
 
 // all containers are configured to run on the !!!host network!!!
 // (to allow convenient configuration of the iptables using the VMs' subnet created in OCI)
-// some containers, however, expose their ports to localhost only to protect them similarly 
+// some containers, however, expose their ports to localhost only to protect them similarly
 // to how the default docker network would (given no other application is proxying the same localhost port)
 
 // Remote Job Runner (RJR):
@@ -23,7 +23,7 @@ const RPS_PUBLIC_PORT = 10327;
 
 const RPS_LISTEN_PORT = 10000; // ideally exposed only to localhost
 
-// RPS_LISTEN_PORT and RJR_INTERNAL_PORT are not in this list becuase 
+// RPS_LISTEN_PORT and RJR_INTERNAL_PORT are not in this list becuase
 // in the current implementation, they are bound to localhost/loopback interface
 // and thus no inter-VM communication is required on the subnet
 const REQUIRED_ALLOWED_PORTS = [RJR_LISTEN_PORT, RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED, RPS_PUBLIC_PORT];
@@ -32,18 +32,17 @@ const REQUIRED_ALLOWED_PORTS = [RJR_LISTEN_PORT, RPS_PEER_PORT_ES, RPS_PEER_PORT
     // check port for duplicates, since all containers are running on the host network
     // (especially important for the master peer where both the RJR and RPS applications run)
     const allPorts = [
-        RJR_LISTEN_PORT, RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED, RPS_PUBLIC_PORT, RJR_INTERNAL_PORT, RPS_LISTEN_PORT
+        RJR_LISTEN_PORT, RPS_PEER_PORT_ES, RPS_PEER_PORT_SBOX, RPS_PEER_PORT_TRUSTED, RPS_PUBLIC_PORT, RJR_INTERNAL_PORT, RPS_LISTEN_PORT,
     ];
-    let set = new Set();
+    const set = new Set();
     const conflictFound = allPorts.reduce((found, current) => {
-        let result = found || set.has(current);
+        const result = found || set.has(current);
         set.add(current);
         return result;
     }, false);
     if (conflictFound) {
         throw new Error(`OCI Cloud Pool Config Error: port clash detected in ports: ${allPorts.join(' ')}`);
     }
-
 }
 
 const RJRComposeFile = `version: '3'
@@ -155,37 +154,35 @@ server {
 }
 `;
 
-
 const PATHS = {
-    machineClient: 0, ca: 1, cert: 2, key: 3
-}
+    machineClient: 0, ca: 1, cert: 2, key: 3,
+};
 
-const __PATH_DATA = {
+const PATH_DATA = {
     [PATHS.machineClient]: {
         container: '/opt/machine.pem',
-        physical: './cert/machine.pem'
+        physical: './cert/machine.pem',
     },
     [PATHS.ca]: {
         container: '/opt/ca.cert',
-        physical: './cert/ca.cert'
+        physical: './cert/ca.cert',
     },
     [PATHS.cert]: {
         container: '/opt/svr.pem',
-        physical: './cert/svr.pem'
+        physical: './cert/svr.pem',
     },
     [PATHS.key]: {
         container: '/opt/svr.key',
-        physical: './cert/svr.key'
+        physical: './cert/svr.key',
     },
-}
+};
 
 /**
  * @returns {{container: string, physical: string}}
  */
 function path(pathType) {
-    return __PATH_DATA[pathType];
+    return PATH_DATA[pathType];
 }
-
 
 const RPSComposeFile = `version: '3'
 services:
@@ -265,13 +262,13 @@ SSLSessionCache "shmcb:/usr/local/apache/logs/ssl_gcache_data(512000)"
 
     LogLevel info ssl:warn
     ErrorLog /var/log/apache_public_https_error.log
-	# additional location makes sure nobody but the peers can access /rest/remote/emit 
+    # additional location makes sure nobody but the peers can access /rest/remote/emit 
     # (if the other port which accesses the RPS node app is restricted to peers only...)
-	<Location "/rps">
-		ProxyPreserveHost On
-		ProxyPass "http://localhost:${RPS_LISTEN_PORT}/rps"
-		ProxyPassReverse "http://localhost:${RPS_LISTEN_PORT}/rps"
-	</Location>
+    <Location "/rps">
+        ProxyPreserveHost On
+        ProxyPass "http://localhost:${RPS_LISTEN_PORT}/rps"
+        ProxyPassReverse "http://localhost:${RPS_LISTEN_PORT}/rps"
+    </Location>
 
 </VirtualHost>
 
@@ -298,49 +295,52 @@ const CLONE_FOLDER_RJR = 'ivis-rjr';
 const CLONE_FOLDER_RPS = 'ivis-rps';
 
 if (CLONE_FOLDER_RJR.indexOf(CLONE_FOLDER_RPS) !== -1 || CLONE_FOLDER_RPS.indexOf(CLONE_FOLDER_RJR) !== -1) {
-    throw new Error(`OCI Cloud Pool Config Error: repository folder clash: ${CLONE_FOLDER_RJR} ${CLONE_FOLDER_RPS}`)
+    throw new Error(`OCI Cloud Pool Config Error: repository folder clash: ${CLONE_FOLDER_RJR} ${CLONE_FOLDER_RPS}`);
+}
+
+function cmdInFolderGetter(repoFolder) {
+    return (command) => `cd ./${repoFolder} && ${command}`;
 }
 
 function getRJRSetupCommands(masterInstancePrivateIp, instancePrivateIp) {
-    const composeContents = RJRComposeFile;
     const nginxConfigContents = getRJRNginxConfig(instancePrivateIp);
     const rjrConfigContents = getRJRConfigFile(masterInstancePrivateIp);
-    const cmdInRepo = (cmd) => `cd ./${CLONE_FOLDER_RJR} && ${cmd}`;
+    const cmdInRepo = cmdInFolderGetter(CLONE_FOLDER_RJR);
 
     return [
         // allow only the master instance to connect to the docker RJR_LISTEN_PORT
         // creates a new chain restricting access for only the master instance if the port is RJR_LISTEN_PORT
-        `sudo iptables -N MASTER_PEER_ACCESS`,
+        'sudo iptables -N MASTER_PEER_ACCESS',
         `sudo iptables -A MASTER_PEER_ACCESS --src ${masterInstancePrivateIp} -j ACCEPT`,
-        `sudo iptables -A MASTER_PEER_ACCESS -j DROP`,
+        'sudo iptables -A MASTER_PEER_ACCESS -j DROP',
         `sudo iptables -I INPUT -p tcp --dport ${RJR_LISTEN_PORT} -j MASTER_PEER_ACCESS`,
         `git clone ${config.oci.peerRJRRepo.url} ${CLONE_FOLDER_RJR}`,
         cmdInRepo((config.oci.peerRJRRepo.commit ? `git checkout ${config.oci.peerRJRRepo.commit}` : 'echo Using the master HEAD')),
         cmdInRepo(`cat > ./config/default.yml << HEREDOC_EOF\n${rjrConfigContents}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ./config/nginx/nginx.conf << HEREDOC_EOF\n${nginxConfigContents}\nHEREDOC_EOF`),
-        cmdInRepo(`cat > ./docker-compose.yml << HEREDOC_EOF\n${composeContents}\nHEREDOC_EOF`),
-        cmdInRepo(`sudo /usr/local/bin/docker-compose up -d --build`),
+        cmdInRepo(`cat > ./docker-compose.yml << HEREDOC_EOF\n${RJRComposeFile}\nHEREDOC_EOF`),
+        cmdInRepo('sudo /usr/local/bin/docker-compose up -d --build'),
     ];
 }
 
 function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInstancePublicIp, subnetMask, caCert, cert, key) {
     const apacheConfigContents = getRPSApacheProxyConfig(masterInstancePublicIp, masterInstancePrivateIp);
     const rpsConfigContents = getRPSConfigFile(peerPrivateIps);
-    const cmdInRepo = (cmd) => `cd ./${CLONE_FOLDER_RPS} && ${cmd}`;
+    const cmdInRepo = cmdInFolderGetter(CLONE_FOLDER_RPS);
 
     return [
         // make PEER ports PEER-only
         // creates a new chain which allows traffic only from the cloud subnet
-        `sudo iptables -N POOL_PEER_ACCESS`,
+        'sudo iptables -N POOL_PEER_ACCESS',
         `sudo iptables -A POOL_PEER_ACCESS --src ${subnetMask} -j ACCEPT`,
-        `sudo iptables -A POOL_PEER_ACCESS -j DROP`,
+        'sudo iptables -A POOL_PEER_ACCESS -j DROP',
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_ES} -j POOL_PEER_ACCESS`,
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_SBOX} -j POOL_PEER_ACCESS`,
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_TRUSTED} -j POOL_PEER_ACCESS`,
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PUBLIC_PORT} -j ACCEPT`, // make public port public (topmost rule)
         `git clone ${config.oci.peerRPSRepo.url} ${CLONE_FOLDER_RPS}`,
         cmdInRepo(`git checkout ${config.oci.peerRPSRepo.commit}`),
-        cmdInRepo(`mkdir ./cert`),
+        cmdInRepo('mkdir ./cert'),
         cmdInRepo(`cat > ./config/default.yml << HEREDOC_EOF\n${rpsConfigContents}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ./config/apache/vhosts.conf << HEREDOC_EOF\n${apacheConfigContents}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ./docker-compose.yml << HEREDOC_EOF\n${RPSComposeFile}\nHEREDOC_EOF`),
@@ -348,9 +348,11 @@ function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInst
         cmdInRepo(`cat > ${path(PATHS.cert).physical} << HEREDOC_EOF\n${cert}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ${path(PATHS.key).physical} << HEREDOC_EOF\n${key}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ${path(PATHS.machineClient).physical} << HEREDOC_EOF\n${cert}${key}\nHEREDOC_EOF`),
-        cmdInRepo(`chmod +x ./setup/docker-entry.sh`),
-        cmdInRepo(`sudo /usr/local/bin/docker-compose up -d --build`),
+        cmdInRepo('chmod +x ./setup/docker-entry.sh'),
+        cmdInRepo('sudo /usr/local/bin/docker-compose up -d --build'),
     ];
 }
 
-module.exports = { getRJRSetupCommands, getRPSSetupCommands, RPS_PUBLIC_PORT, REQUIRED_ALLOWED_PORTS }
+module.exports = {
+    getRJRSetupCommands, getRPSSetupCommands, RPS_PUBLIC_PORT, REQUIRED_ALLOWED_PORTS,
+};
