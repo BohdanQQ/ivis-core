@@ -320,6 +320,31 @@ async function makeReadySSHConnection(host, port, username, password = undefined
     return conn;
 }
 
+/**
+ * @callback SSHConnFn
+ * @param {SSHConnection} connection
+ * @returns {Promise<any>}
+ */
+
+/**
+ * Wraps a function call utilizing a ssh connection in a wrapper which
+ * always safely disposes of the connection
+ * @param { {host : string, port: number, username: string, password?: string} } credentials
+ * @param {SSHConnFn} func
+ * @returns {any} whatever the func returns, errors are rethrown
+ */
+async function sshWrapper(credentials, func) {
+    const connection = await makeReadySSHConnection(credentials.host, credentials.port, credentials.username, credentials.password);
+    try {
+        const result = await func(connection);
+        connection.end();
+        return result;
+    } catch (err) {
+        connection.end();
+        throw err;
+    }
+}
+
 module.exports = {
-    getPublicSSHKey, executeCommand, canMakeSSHConnectionTo, uploadFile, makeReadySSHConnection,
+    getPublicSSHKey, executeCommand, canMakeSSHConnectionTo, uploadFile, sshWrapper,
 };

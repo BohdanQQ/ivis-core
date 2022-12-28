@@ -13,11 +13,8 @@ const certs = require('../../remote-certificates');
 
 const LOG_ID = 'slurm-pool';
 
-async function sshConnectionFromExecutor(executor) {
-    const {
-        hostname, port, username, password,
-    } = executor.parameters;
-    return ssh.makeReadySSHConnection(hostname, port, username, password);
+async function sshCredsFromExecutor(executor) {
+    return executor.parameters;
 }
 
 /**
@@ -91,30 +88,6 @@ async function getHomeDir(commandExecutor) {
 }
 
 /**
- * @callback SSHConnFn
- * @param {ssh.SSHConnection} connection
- * @returns {Promise<any>}
- */
-
-/**
- * Wraps a function call utilizing a ssh connection in a wrapper which
- * always safely disposes of the connection
- * @param {any} executor
- * @param {SSHConnFn} func
- * @returns {any} whatever the func returns
- */
-async function sshWrapper(executor, func) {
-    const commandExecutor = await sshConnectionFromExecutor(executor);
-    try {
-        const result = await func(commandExecutor);
-        commandExecutor.end();
-        return result;
-    } catch (err) {
-        commandExecutor.end();
-        throw err;
-    }
-}
-/**
  * @param {any} executor
  * @param {string} archivePath local (IVIS-core) path to the task's code archive
  * @param {any} runConfig
@@ -128,7 +101,7 @@ async function run(executor, archivePath, runConfig, type, subtype) {
     const runPaths = new RunPaths(execPaths, runConfig.runId);
 
     const archiveHash = getArchiveHash(archivePath, type, toUseSubtype);
-    await sshWrapper(executor, async (commandExecutor) => {
+    await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
         if (!(await isCacheRecordValid(taskPaths, archiveHash, commandExecutor))) {
             const homedir = await getHomeDir(commandExecutor);
             await commandExecutor.execute(`mkdir -p ${taskPaths.taskDirectory()}`);
@@ -151,7 +124,7 @@ async function run(executor, archivePath, runConfig, type, subtype) {
  */
 async function stop(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
-    await sshWrapper(executor, async (commandExecutor) => {
+    await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
         try {
             await commandExecutor.execute(`srun ${scripts.getRunStopInvocation(runPaths)}`);
         } catch (err) {
@@ -167,7 +140,7 @@ async function stop(executor, runId) {
 async function removeRun(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
     const command = scripts.getRunRemoveInvocation(runPaths);
-    await sshWrapper(executor, async (commandExecutor) => {
+    await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
         await commandExecutor.execute(`srun ${command}`);
     });
 }
@@ -225,7 +198,7 @@ async function getRemoteRunStateState(commandExecutor, runPaths) {
  */
 async function status(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
-    return await sshWrapper(executor, async (commandExecutor) => {
+    return await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
         const fileContentsOrNull = async (path) => {
             try {
                 const output = await getCommandOutput(commandExecutor, `srun cat ${path}`);
@@ -347,7 +320,7 @@ async function createSlurmPool(executor, certificateGeneratorFunction) {
         cert,
         key,
     } = certs.getExecutorCertKey(executor.id);
-    await sshWrapper(executor, async (commandExecutor) => {
+    await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
         const commands = getPoolInitCommands(executor.id, ca, key, cert, await getHomeDir(commandExecutor));
         for (const command of commands) {
             await commandExecutor.execute(command);
@@ -363,7 +336,7 @@ async function createSlurmPool(executor, certificateGeneratorFunction) {
  */
 async function removePool(executor) {
     const execPaths = new ExecutorPaths(executor.id);
-    await sshWrapper(executor, async (commandExecutor) => {
+    await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
         await commandExecutor.execute(`srun rm -rf ${execPaths.rootDirectory()}`);
     });
 }
