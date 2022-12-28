@@ -13,8 +13,15 @@ const certs = require('../../remote-certificates');
 
 const LOG_ID = 'slurm-pool';
 
-async function sshCredsFromExecutor(executor) {
-    return executor.parameters;
+function sshCredsFromExecutor(executor) {
+    const params = executor.parameters;
+    const creds = {
+        host: params.hostname, 
+        port: params.port,
+        username: params.username,        
+        password: params.password,
+    }
+    return creds;
 }
 
 /**
