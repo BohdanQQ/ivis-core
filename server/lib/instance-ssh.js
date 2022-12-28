@@ -29,7 +29,7 @@ function getConnectionDescription(host, port, username, password) {
         username,
         privateKey: getPrivateSSHKey(),
     };
-    if (password !== null || password !== undefined) {
+    if (password !== null && password !== undefined) {
         connectionDescription.password = password;
     }
     return connectionDescription;
@@ -48,12 +48,7 @@ async function canMakeSSHConnectionTo(host, port, username) {
                 log.verbose(LOG_ID, `connecting to ${host}:${port}`, message);
                 resolve(false);
             })
-            .connect({
-                host,
-                port,
-                username,
-                privateKey: getPrivateSSHKey().toString(),
-            });
+            .connect(getConnectionDescription(host, port, username));
     });
 }
 
