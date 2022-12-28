@@ -35,63 +35,6 @@ function getConnectionDescription(host, port, username, password) {
     return connectionDescription;
 }
 
-/**
- *
- * @param {String} command
- * @param {String} host
- * @param {Number} port
- * @param {String} username
- * @param {String?} password
- * @returns {Promise<{stdout: [String], stderr: [String], error: Error | undefined}>}
- */
-async function executeCommand(command, host, port, username, password) {
-    const connectionDescription = getConnectionDescription(host, port, username, password);
-    return new Promise((resolve, reject) => {
-        const conn = new Client();
-        const stdout = [];
-        const stderr = [];
-        try {
-            conn.on('ready', () => {
-                conn.exec(command, (err, stream) => {
-                    if (err) reject(err);
-                    stream.on('close', (code, signal) => {
-                        conn.end();
-                        if (code === 0) {
-                            resolve({
-                                stdout,
-                                stderr,
-                            });
-                        } else {
-                            reject({
-                                stdout,
-                                stderr,
-                                error: new Error(`Stream closed with code ${code} and signal ${signal}`),
-                            });
-                        }
-                    }).on('data', (data) => {
-                        stdout.push(data.toString().trim());
-                    }).stderr.on('data', (data) => {
-                        stderr.push(data.toString().trim());
-                    });
-                });
-            }).on('error', (message) => {
-                reject({
-                    stdout,
-                    stderr,
-                    error: new Error(`Cannot connect: ${message}`),
-                });
-            })
-                .connect(connectionDescription);
-        } catch (err) {
-            reject({
-                stdout,
-                stderr,
-                error: err,
-            });
-        }
-    });
-}
-
 async function canMakeSSHConnectionTo(host, port, username) {
     return new Promise((resolve) => {
         const conn = new Client();
@@ -346,5 +289,5 @@ async function sshWrapper(credentials, func) {
 }
 
 module.exports = {
-    getPublicSSHKey, executeCommand, canMakeSSHConnectionTo, uploadFile, sshWrapper,
+    getPublicSSHKey, canMakeSSHConnectionTo, uploadFile, sshWrapper,
 };
