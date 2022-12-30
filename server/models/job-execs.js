@@ -11,10 +11,7 @@ const {
 const remoteCert = require('../lib/remote-certificates');
 const log = require('../lib/log');
 const { getAdminContext } = require('../lib/context-helpers');
-const {
-    registerPoolRemoval,
-} = require('../lib/pools/oci/basic/global-state');
-const { createOCIBasicPool } = require('../lib/pools/oci/basic/oci-basic');
+const { createOCIBasicPool, shutdownPool, killPoolForced } = require('../lib/pools/oci/basic/oci-basic');
 const slurm = require('../lib/pools/slurm/slurm');
 const { RunStatus } = require('../../shared/jobs');
 
@@ -253,23 +250,55 @@ async function getRunsByExecutor(executorId) {
         .where('jobs.executor_id', executorId).select('job_runs.id', 'job_runs.status');
 }
 
-const executorDestructor = {
-    [MachineTypes.REMOTE_RUNNER_AGENT]: async (executor, tx) => {
-        // nothing needs to be done
-    },
-    [MachineTypes.OCI_BASIC]: async (executor, tx) => {
-        await registerPoolRemoval({ subnetMask: executor.state.subnetMask });
-    },
-    [MachineTypes.SLURM_POOL]: async (executor) => {
-        const runStopPromises = (await getRunsByExecutor(executor.id)).map((run) => ({ id: run.id, status: run.status }))
-            .filter((run) => run.status !== RunStatus.FAILED && run.status !== RunStatus.SUCCESS)
-            .map((run) => slurm.stop(executor, run.id));
-        try {
-            await Promise.all(runStopPromises);
-            await slurm.removePool(executor);
-        } catch (err) {
-            throw new Error(`SLURM pool removal failed, please stop all running jobs and remove the executor manually, error: ${err.toString()}`);
+async function finalExecutorRemovalSteps(executorId) {
+    remoteCert.tryRemoveCertificate(executorId);
+    await knex('jobs').where('executor_id', executorId).update({ executor_id: 1 });
+    await knex(EXEC_TABLE).where('id', executorId).del();
+}
+
+// wraps executor-type dependent operation around common steps
+// such as all executor-related run cancellation, certificate removal, ...  
+async function execRemovalWith(runStopPromiseGenerator, afterStopPromiseGenerator, executor, forced) {
+    const runStopPromises = (await getRunsByExecutor(executor.id))
+        .filter((run) => run.status !== RunStatus.FAILED && run.status !== RunStatus.SUCCESS)
+        .map((run) =>  runStopPromiseGenerator(executor, run.id));
+    try {
+        await Promise.all(runStopPromises);
+        await afterStopPromiseGenerator();
+        await finalExecutorRemovalSteps(executor.id);
+    } catch (err) {
+        if (executor.status === ExecutorStatus.FAIL) {
+            await appendToLogById(executor.id, '\nWARNING: REMOVAL OF A FAILED EXECUTOR MAY FAIL BECAUSE THE INITIALIZATION HAS LEFT THE EXECUTOR IN ONLY PARTIALLY CORRECT STATE\n');
         }
+        if (!forced) {
+            await logErrorToExecutor(executor.id, `Pool removal failed, please stop all running jobs and remove the executor manually (force-remove the executor and free your resource using the executor state: ${JSON.stringify(executor.state)})`, err);
+            await updateExecStatus(executor.id, ExecutorStatus.FAIL);
+            await knex('jobs').where('executor_id', executor.id).update({ executor_id: 1 });
+            return;
+        }
+        await finalExecutorRemovalSteps(executorId).catch(() => null);
+    }
+}
+
+const executorDestructor = {
+    // no await - this operation may take a long time (too long for the client form to wait)
+    // TODO document - run stop must be directly awaitable, unlike task handler signalling
+    // TODO RUN STOP
+    [MachineTypes.REMOTE_RUNNER_AGENT]: async (executor, tx, isForced) => {
+        execRemovalWith(() => console.log('stop rjr'), () => Promise.resolve(), executor, isForced);
+    },
+    // TODO RUN STOP
+    [MachineTypes.OCI_BASIC]: async (executor, tx, isForced) => {
+        execRemovalWith(() => console.log('stop oci'), async () => {
+            if (isForced) {
+                return await killPoolForced(executor);
+            } else {
+                return await shutdownPool(executor);
+            }
+        }, executor, isForced);
+    },
+    [MachineTypes.SLURM_POOL]: async (executor, tx, isForced) => {
+        execRemovalWith(slurm.stop, async () => await slurm.removePool(executor), executor, isForced);
     },
 };
 
@@ -282,19 +311,14 @@ const executorDestructor = {
 async function remove(context, id) {
     enforce(id !== 1, 'Local executor cannot be deleted');
     const exec = await getById(context, id, false);
-    enforce(exec.status !== ExecutorStatus.PROVISIONING, 'Please wait until executor creation finishes');
+    enforce(exec.status !== ExecutorStatus.PROVISIONING, 'Please wait until executor creation/removal finishes');
     try {
         // ensures no runs can be scheduled to this executor during its removal
         await updateExecStatus(exec.id, ExecutorStatus.PROVISIONING);
         await knex.transaction(async (tx) => {
             await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
 
-            await executorDestructor[exec.type](exec, tx);
-
-            remoteCert.tryRemoveCertificate(id);
-
-            await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
-            await tx(EXEC_TABLE).where('id', id).del();
+            await executorDestructor[exec.type](exec, tx, false);
         });
     } catch (err) {
         if (exec.status === ExecutorStatus.FAIL) {
@@ -317,17 +341,20 @@ async function remove(context, id) {
 async function removeForced(context, id) {
     enforce(id !== 1, 'Local executor cannot be deleted');
     const exec = await getById(context, id, false);
-    await knex.transaction(async (tx) => {
-        await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'delete');
-        try {
-            await executorDestructor[exec.type](exec, tx);
-        } catch (err) {
-            // ignore since removal is forced
-        }
-        remoteCert.tryRemoveCertificate(id);
-        await tx('jobs').where('executor_id', id).update({ executor_id: 1 });
-        await tx(EXEC_TABLE).where('id', id).del();
-    });
+    // 2 possible solutions:
+    // forceful removal does not care about executor state
+    // forceful removal works only on non-provisioning executors => in case something goes wrong 
+    // and the executor never switches to failed/success, the user would need the entire IVIS server 
+    // to be restarted
+    // thus keeping it this way (no check) for now
+    await updateExecStatus(exec.id, ExecutorStatus.PROVISIONING);
+    await shares.enforceEntityPermissionTx(knex, context, EXEC_TYPEID, id, 'delete');
+    // no await because the form times out for too long requests
+    executorDestructor[exec.type](exec, knex, true).catch(() => null).then( () => 
+        remoteCert.tryRemoveCertificate(id))
+        .then(() => knex('jobs').where('executor_id', id).update({ executor_id: 1 }))
+        .then(knex(EXEC_TABLE).where('id', id).del())
+        .catch((err) => log.error(LOG_ID, 'forced removal error', err));
 }
 
 async function getAllCerts(context, id) {

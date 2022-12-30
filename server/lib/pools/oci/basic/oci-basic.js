@@ -3,6 +3,7 @@ const {
     createNewPoolParameters,
     getGlobalStateForOCIExecType,
     INSTANCE_SSH_PORT,
+    registerPoolRemoval,
 } = require('./global-state');
 const {
     virtualNetworkClient, virtualNetworkWaiter, COMPARTMENT_ID, TENANCY_ID, identityClient,
@@ -247,51 +248,40 @@ function getRPSInstallationCommands(peerIps, masterInstancePrivateIp, masterInst
 
 async function runCommandsOnPeers(instanceIds, executorId, commandGenerator) {
     const user = 'opc';
-    try {
-        const installationPromises = instanceIds.map(async (id) => {
-            const vnic = await getInstanceVnic(id);
-            await waitForSSHConnection(vnic.publicIp, INSTANCE_SSH_PORT, user, 10, config.oci.instanceWaitSecs, 30);
-            const commands = commandGenerator(vnic.privateIp);
-            for (const command of commands) {
-                log.verbose(LOG_ID, `executing: ${command}`);
-                let firstError = null;
-                const maxRetryCount = 3;
-                let retryNum = 0;
-                while (retryNum <= maxRetryCount) {
-                    if (retryNum > 0) {
-                        log.verbose(LOG_ID, `Retrying the command ${command}`);
-                    }
-                    try {
-                        await sshWrapper({ host: vnic.publicIp, port: INSTANCE_SSH_PORT, username: user }, async (connection) => {
-                            await connection.execute(command);
-                        });
-                        break;
-                    } catch (err) {
-                        if (!firstError) {
-                            firstError = err;
-                        }
-                        retryNum += 1;
-                        log.error(LOG_ID, err);
-                    }
+    const installationPromises = instanceIds.map(async (id) => {
+        const vnic = await getInstanceVnic(id);
+        await waitForSSHConnection(vnic.publicIp, INSTANCE_SSH_PORT, user, 10, config.oci.instanceWaitSecs, 30);
+        const commands = commandGenerator(vnic.privateIp);
+        for (const command of commands) {
+            log.verbose(LOG_ID, `executing: ${command}`);
+            let firstError = null;
+            const maxRetryCount = 3;
+            let retryNum = 0;
+            while (retryNum <= maxRetryCount) {
+                if (retryNum > 0) {
+                    log.verbose(LOG_ID, `Retrying the command ${command}`);
                 }
-                if (firstError) {
-                    throw firstError;
+                try {
+                    await sshWrapper({ host: vnic.publicIp, port: INSTANCE_SSH_PORT, username: user }, async (connection) => {
+                        await connection.execute(command);
+                    });
+                    // command executed successfully => reset the error
+                    firstError = null;
+                    break;
+                } catch (err) {
+                    if (!firstError) {
+                        firstError = err;
+                    }
+                    retryNum += 1;
+                    log.error(LOG_ID, err);
                 }
             }
-        });
-        await Promise.all(installationPromises);
-    } catch (error) {
-        // TODO destroyAllOkPeers
-        throw error;
-    }
-}
-
-async function shutdownSubnet() {
-
-}
-
-async function shutdownInstance() {
-
+            if (firstError) {
+                throw firstError;
+            }
+        }
+    });
+    await Promise.all(installationPromises);
 }
 
 function convertParams(params) {
@@ -374,30 +364,134 @@ async function saveState(execId, stateToSave) {
 }
 
 
+async function shutdownSubnet(subnetId) {
+    log.verbose(LOG_ID, 'Removing subnet with id', subnetId);
+    const terminationRequest = {
+        subnetId: subnetId
+    };
+
+    await virtualNetworkClient.deleteSubnet(terminationRequest);
+
+    try {
+        await virtualNetworkWaiter.forSubnet(
+            {
+                subnetId: subnetId
+            },
+            core.models.Subnet.LifecycleState.Terminated
+        );
+    } catch (err) {
+        if (!((err.statusCode && err.statusCode === 404) || (err.errorObject && err.errorObject.statusCode && err.errorObject.statusCode === 404))) {
+            console.dir(err);
+            throw err;
+        }
+        // do nothing  (meaning the subnet was removed and no waiting needs to be done)
+    }
+
+    log.verbose(LOG_ID, 'Removed subnet with id', subnetId);
 }
 
-async function shutdownOCIBasicPool(executorId) {
+async function getInstanceShutdownPromise(instanceId) {
+    log.verbose(LOG_ID, 'Shutting down instance with id', instanceId);
+    const terminationRequest = {
+        instanceId: instanceId,
+        preserveBootVolume: false
+    };
+    await computeClient.terminateInstance(terminationRequest);
 
+    await computeWaiter.forInstance(
+        {
+            instanceId: instanceId
+        },
+        core.models.Instance.LifecycleState.Terminated
+    );
+    log.verbose(LOG_ID, 'Shut down instance with id', instanceId);
 }
 
-// TODO? (shutdown == from ready state)
-async function killPoolFromFailedState(executorId) {
-
+async function shutdownInstances(instanceIds) {
+    const promises = instanceIds.map((id) => getInstanceShutdownPromise(id).then(() => { return { ok: 'ok' } }).catch(err => { return { error: err, id: id } }));
+    const completedShutdownAttempts = await Promise.all(promises);
+    const errors = completedShutdownAttempts.filter(attempt => attempt.error).map(attempt => attempt.error);
+    if (errors.length > 0) {
+        const message = 'Some instances could not be shutdown with the following errors: '
+            + errors.map(({ error, id }, index) => `Error ${index}, instance ID affected: ${id}\n` + error.toString())
+                .concat('\n');
+        throw new Error(message);
+    }
 }
 
-module.exports = { createOCIBasicPool, shutdownOCIBasicPool, verifyOCIBasicPool };
+/**
+ * Performs shutdown steps, propagates errors only when allowStepFailure is false. 
+ * @param {any} executor 
+ * @param {Boolean} allowStepFailure 
+ */
+async function generalShutdownFromState(executor, allowStepFailure = false) {
+    const state = executor.state;
+    if (!state) {
+        throw new Error(`Could not get executor state (id: ${executor.id}`);
+    }
+    let instancesTerminated = true;
+    if (state.poolInstanceIds) {
+        try {
+            await shutdownInstances(state.poolInstanceIds);
+            // a delete-and-save pattern on successful execution of a shutdown step
+            // such as here allows to register those successful parts and not try to
+            // repeat them in future executions
+            delete state.poolInstanceIds;
+            await saveState(executor.id, state);
+        } catch (err) {
+            instancesTerminated = false;
+            if (!allowStepFailure) {
+                throw err;
+            }
+        }
+    } else if (!allowStepFailure) {
+        throw new Error('Unexpected state format, missing pool instance IDs');
+    } else {
+        instancesTerminated = false;
+    }
+    // if instances not terminated, then subnet cannot be removed
+    let subnetTerminated = instancesTerminated;
+    // additionally, if state.subnetId is not present, there is no safe reason to deallocate the subnet mask later
+    if (instancesTerminated && state.subnetId) {
+        try {
+            await shutdownSubnet(state.subnetId);
+            delete state.subnetId;
+            await saveState(executor.id, state);
+        } catch (err) {
+            subnetTerminated = false;
+            if (!allowStepFailure) {
+                throw err;
+            }
+        }
+    } else if (!allowStepFailure) {
+        if (!instancesTerminated) {
+            throw new Error('Pool instances have not terminated as expected');
+        } else {
+            throw new Error('Unexpected state format, missing subnet IDs');
+        }
+    } else {
+        subnetTerminated = false;
+    }
+    // allows the removal from global state in case force remove is perfomed
+    if ((allowStepFailure) || (subnetTerminated && state.subnetMask)) {
+        await registerPoolRemoval({ subnetMask: state.subnetMask });
+        delete state.subnetMask;
+        await saveState(executor.id, state);
+    } else if (!allowStepFailure) {
+        if (!subnetTerminated) {
+            throw new Error('Subnet was not terminated as expected');
+        } else {
+            throw new Error('Unexpected state format, missing subnet mask');
+        }
+    }
+}
 
-// TODO: use elsewhere
-// async function isExecutorOfType(executorType, executorId) {
-//     const executor = await getById(getAdminContext(), executorId);
-//     return executor && executor.type == executorType;
-// }
+async function shutdownPool(executor) {
+    await generalShutdownFromState(executor, false);
+}
 
-// function wrapWithExecTypeCheck(fn, expectedExecType) {
-//     return (executorId) => {
-//         if (!isExecutorOfType(execType, executorId)) {
-//             throw new Error(`Invalid Executor type: found ${execType} where ${expectedExecType} was expected`);
-//         }
-//         return fn(executorId);
-//     }
-// }
+async function killPoolForced(executor) {
+    await generalShutdownFromState(executor, true);
+}
+
+module.exports = { createOCIBasicPool, shutdownPool, killPoolForced };
