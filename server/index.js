@@ -4,6 +4,7 @@ const em = require('./lib/extension-manager');
 const emCommonDefaults = require('../shared/em-common-defaults');
 const config = require('./lib/config');
 const translate = require('./lib/translate');
+const jobExecutors= require('./models/job-execs');
 const knex = require('./lib/knex');
 const log = require('./lib/log');
 const https = require('https');
@@ -80,6 +81,7 @@ async function initAndStart() {
     await alertsHandler.init();
     await templates.compileAll();
     await tasks.compileAll();
+    await jobExecutors.failAllProvisioning();
 
     await em.invokeAsync('services.start');
 

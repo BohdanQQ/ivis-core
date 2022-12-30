@@ -23,6 +23,16 @@ const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'names
 const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespace']);
 const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
+
+async function failAllProvisioning() {
+    const provisioningExecs = await knex(EXEC_TABLE).where('status', ExecutorStatus.PROVISIONING);
+    await Promise.all(
+        provisioningExecs.map((exec) => 
+            appendToLogById(exec.id, 'Executor status update: status changed to fail because initialization/removal has not finished properly before IVIS server shutdown')
+            .then(() => updateExecStatus(exec.id, ExecutorStatus.FAIL)))
+    );
+}
+
 function dbFieldName(name) {
     return `${EXEC_TABLE}.${name}`;
 }
@@ -372,11 +382,11 @@ async function getAllCerts(context, id) {
 
 async function appendToLogById(id, toAppend) {
     return await knex.transaction(async (tx) => {
-        const { executorLog } = await getById(getAdminContext(), id, false);
-        await tx(EXEC_TABLE).update({ log: `${executorLog}\n${toAppend}` }).where('id', id);
+        const { log } = await getById(getAdminContext(), id, false);
+        await tx(EXEC_TABLE).update({ log: `${log}\n${toAppend}` }).where('id', id);
     });
 }
 
 module.exports = {
-    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById, removeForced,
+    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById, removeForced, failAllProvisioning
 };
