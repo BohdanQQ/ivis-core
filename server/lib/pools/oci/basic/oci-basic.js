@@ -317,17 +317,16 @@ function convertParams(params) {
 
 /**
  * @param { certificateGenerator } certificateGeneratorFunction
- * @returns
+ * @returns {Promise<void>}
  */
 async function createOCIBasicPool(executorId, params, certificateGeneratorFunction) {
-    const retVal = {
+    const state = {
         subnetId: null,
         subnetMask: null,
         masterInstanceId: null,
         masterInstanceIp: null,
         masterInstanceSubnetIp: null,
         poolInstanceIds: [],
-        error: null,
     };
     params = convertParams(params);
     try {
@@ -335,45 +334,45 @@ async function createOCIBasicPool(executorId, params, certificateGeneratorFuncti
         const {
             subnetMask,
         } = await createNewPoolParameters();
-        retVal.subnetMask = subnetMask;
-        retVal.subnetId = await createSubnet(executorId, subnetMask, executorGlobalState.vcn, executorGlobalState.securityList);
+        state.subnetMask = subnetMask;
+        state.subnetId = await createSubnet(executorId, subnetMask, executorGlobalState.vcn, executorGlobalState.securityList);
 
-        retVal.poolInstanceIds = await createPoolPeers(params.size, executorId, retVal.subnetId, params);
+        state.poolInstanceIds = await createPoolPeers(params.size, executorId, state.subnetId, params);
 
-        if (!(retVal.poolInstanceIds instanceof Array) || retVal.poolInstanceIds.length <= 0) {
-            log.error(LOG_ID, 'Pool instance creation unexpectedly returned ', retVal.poolInstanceIds);
+        if (!(state.poolInstanceIds instanceof Array) || state.poolInstanceIds.length <= 0) {
+            log.error(LOG_ID, 'Pool instance creation unexpectedly returned ', state.poolInstanceIds);
             throw new Error('No pool peers have been created! Cannot select Master Peer.');
         }
-        retVal.masterInstanceId = retVal.poolInstanceIds[0];
-        log.info(LOG_ID, `Master Peer Selected: ${retVal.masterInstanceId}`);
-        const vnic = await getInstanceVnic(retVal.masterInstanceId);
-        retVal.masterInstanceIp = vnic.publicIp;
-        retVal.masterInstanceSubnetIp = vnic.privateIp;
+        state.masterInstanceId = state.poolInstanceIds[0];
+        log.info(LOG_ID, `Master Peer Selected: ${state.masterInstanceId}`);
+        const vnic = await getInstanceVnic(state.masterInstanceId);
+        state.masterInstanceIp = vnic.publicIp;
+        state.masterInstanceSubnetIp = vnic.privateIp;
         log.info(LOG_ID, 'Master Instance IPs', {
-            public: retVal.masterInstanceIp,
-            private: retVal.masterInstanceSubnetIp,
+            public: state.masterInstanceIp,
+            private: state.masterInstanceSubnetIp,
         });
 
         log.info(LOG_ID, 'Installing required software on pool peers');
-        await runCommandsOnPeers(retVal.poolInstanceIds, executorId, (instanceIp) => getRJRInstallationCommands(retVal.masterInstanceSubnetIp, instanceIp, retVal.subnetMask));
+        await runCommandsOnPeers(state.poolInstanceIds, executorId, (instanceIp) => getRJRInstallationCommands(state.masterInstanceSubnetIp, instanceIp, state.subnetMask));
 
         log.info(LOG_ID, 'Generating certificates for the master peer');
-        await certificateGeneratorFunction(retVal.masterInstanceIp);
-        const peerIPs = await (Promise.all(retVal.poolInstanceIds.map(async (id) => (await getInstanceVnic(id)).privateIp)));
+        await certificateGeneratorFunction(state.masterInstanceIp);
+        const peerIPs = await (Promise.all(state.poolInstanceIds.map(async (id) => (await getInstanceVnic(id)).privateIp)));
         log.info(LOG_ID, 'Installing additional software on master peer');
-        await runCommandsOnPeers([retVal.masterInstanceId], executorId, () => getRPSInstallationCommands(peerIPs, retVal.masterInstanceIp, retVal.masterInstanceSubnetIp, retVal.subnetMask, executorId));
+        await runCommandsOnPeers([state.masterInstanceId], executorId, () => getRPSInstallationCommands(peerIPs, state.masterInstanceIp, state.masterInstanceSubnetIp, state.subnetMask, executorId));
     } catch (error) {
-        // TODO failure recovery - terminate all created peers
-        retVal.error = error;
+        log.error(LOG_ID, 'Failed to create OCI pool, partial executor state which will be saved:', state);
+        await saveState(executorId, state);
+        throw error;
     }
-
-    if (retVal.error === null && (retVal.masterInstanceIp === null || retVal.masterInstanceSubnetIp === null)) {
-        retVal.error = new Error('MasterInstance (Subnet)IP not found');
-    }
-    return retVal;
+    await saveState(executorId, state);
+}
+const EXEC_TABLE = 'job_executors';
+async function saveState(execId, stateToSave) {
+    await knex(EXEC_TABLE).update({ state: JSON.stringify(stateToSave) }).where('id', execId);
 }
 
-async function verifyOCIBasicPool(executorId) {
 
 }
 

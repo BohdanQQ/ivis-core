@@ -115,46 +115,17 @@ const executorInitializer = {
     },
     [MachineTypes.OCI_BASIC]: async (filteredEntity, tx) => {
         (async () => {
-            let error = null;
             try {
                 log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
-                const state = await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters, (ip) => generateCertificates(filteredEntity, ip, null, null));
-                const stateToSave = { ...state };
-                delete stateToSave.error;
-                await knex(EXEC_TABLE).update({ state: JSON.stringify(stateToSave) }).where('id', filteredEntity.id);
-                if (state.error !== null) {
-                    throw state.error;
-                }
+                await createOCIBasicPool(filteredEntity.id, filteredEntity.parameters, (ip) => generateCertificates(filteredEntity, ip, null, null));
             } catch (err) {
-                error = err;
-            } finally {
-                if (error === null) {
-                    await updateExecStatus(filteredEntity.id, ExecutorStatus.READY);
-                } else {
-                    await logErrorToExecutor(filteredEntity.id, 'Cannot create OCI pool', error);
-                    log.error(error);
-                    await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
-                }
+                await logErrorToExecutor(filteredEntity.id, 'Cannot create OCI pool', err);
+                log.error(err);
+                await updateExecStatus(filteredEntity.id, ExecutorStatus.FAIL);
+                return;
             }
+            await updateExecStatus(filteredEntity.id, ExecutorStatus.READY);
         })();
-        // rough WIP outline
-        // compartmentId, tenancyId
-        // Global state:        vnic, subnet couners
-        // Executor state:      vm names, subnet name, ip adds?
-        // Executor parameters: vm count, tenancy, compartment, homogenous shape, [if shape flexible] shape config
-        // pregenerate vm names     (timestamp, displayName field)
-        // pregenerate subnet name  (book-keeping the limits?)
-        // pregenerate subnet values        ---- || -----
-        // create master vm => init scheduler on vm
-        // OCI: provision resource
-        // SSH: provision pool sw
-        // create pool vms (parallel) => init RJE on vm
-        // OCI: provision resource
-        // SSH: provision pool sw
-        // check pool (send vm names/public/private IPs?)
-        // impl: ping pool members on remote executor ports
-        // set status READY
-        // on excpetion set status false
     },
     [MachineTypes.SLURM_POOL]: async (filteredEntity, tx) => {
         (async () => {
