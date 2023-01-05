@@ -14,6 +14,7 @@ const { getAdminContext } = require('../lib/context-helpers');
 const { createOCIBasicPool, shutdownPool, killPoolForced } = require('../lib/pools/oci/basic/oci-basic');
 const slurm = require('../lib/pools/slurm/slurm');
 const { RunStatus } = require('../../shared/jobs');
+const { getRemoteHandler } = require('../lib/remote-executor-comms'); 
 
 const LOG_ID = 'job-execs';
 const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'namespace', 'status']);
@@ -264,6 +265,8 @@ async function execRemovalWith(runStopPromiseGenerator, afterStopPromiseGenerato
         .map((run) =>  runStopPromiseGenerator(executor, run.id));
     try {
         await Promise.all(runStopPromises);
+        // waiting in case the promises just "sent stop requests" without waiting for the result
+        await (new Promise(((resolve) => setTimeout(resolve, 10000))));
         await afterStopPromiseGenerator();
         await finalExecutorRemovalSteps(executor.id);
     } catch (err) {
@@ -282,14 +285,12 @@ async function execRemovalWith(runStopPromiseGenerator, afterStopPromiseGenerato
 
 const executorDestructor = {
     // no await - this operation may take a long time (too long for the client form to wait)
-    // TODO document - run stop must be directly awaitable, unlike task handler signalling
-    // TODO RUN STOP
     [MachineTypes.REMOTE_RUNNER_AGENT]: async (executor, tx, isForced) => {
-        execRemovalWith(() => console.log('stop rjr'), () => Promise.resolve(), executor, isForced);
+        // this executor type must be removed manually
+        execRemovalWith(getRemoteHandler(MachineTypes.REMOTE_RUNNER_AGENT).stop, () => Promise.resolve(), executor, isForced);
     },
-    // TODO RUN STOP
     [MachineTypes.OCI_BASIC]: async (executor, tx, isForced) => {
-        execRemovalWith(() => console.log('stop oci'), async () => {
+        execRemovalWith(getRemoteHandler(MachineTypes.OCI_BASIC).stop, async () => {
             if (isForced) {
                 return await killPoolForced(executor);
             } else {
@@ -298,7 +299,7 @@ const executorDestructor = {
         }, executor, isForced);
     },
     [MachineTypes.SLURM_POOL]: async (executor, tx, isForced) => {
-        execRemovalWith(slurm.stop, async () => await slurm.removePool(executor), executor, isForced);
+        execRemovalWith(getRemoteHandler(MachineTypes.SLURM_POOL).stop, async () => await slurm.removePool(executor), executor, isForced);
     },
 };
 
