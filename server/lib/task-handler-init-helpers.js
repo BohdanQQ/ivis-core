@@ -166,7 +166,8 @@ async function cleanRuns() {
                 try {
                     await knex('job_runs').where('id', run.id).update({
                         status: RunStatus.FAILED,
-                        output: 'Cancelled upon start'
+                        output: 'Cancelled upon start',
+                        finished_at: new Date(),
                     })
                 } catch (err) {
                     log.error(LOG_ID, `Failed to clear run with id ${run.id}: ${err.stack}`);
