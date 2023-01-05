@@ -33,6 +33,7 @@ function getStatePriority(state) {
         [RunStatus.FAILED]: 10000,
         [RunStatus.RUNNING]: 0,
         [RunStatus.SCHEDULED]: -1000,
+        [RunStatus.INITIALIZATION]: -2000,
     };
     return prioMap[state];
 }
