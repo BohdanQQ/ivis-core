@@ -14,7 +14,8 @@ const { getAdminContext } = require('../lib/context-helpers');
 const { createOCIBasicPool, shutdownPool, killPoolForced } = require('../lib/pools/oci/basic/oci-basic');
 const slurm = require('../lib/pools/slurm/slurm');
 const { RunStatus } = require('../../shared/jobs');
-const { getRemoteHandler } = require('../lib/remote-executor-comms'); 
+const jobHandler = require('../lib/task-handler');
+const config = require('../lib/config');
 
 const LOG_ID = 'job-execs';
 const allowedKeys = new Set(['name', 'description', 'type', 'parameters', 'namespace', 'status']);
@@ -248,7 +249,7 @@ async function updateWithConsistencyCheck(context, executor) {
 async function getRunsByExecutor(executorId) {
     return knex('job_runs')
         .innerJoin('jobs', 'job_runs.job', 'jobs.id')
-        .where('jobs.executor_id', executorId).select('job_runs.id', 'job_runs.status');
+        .where('jobs.executor_id', executorId).select('job_runs.id', 'job_runs.status', 'job_runs.job');
 }
 
 async function finalExecutorRemovalSteps(executorId) {
@@ -259,14 +260,15 @@ async function finalExecutorRemovalSteps(executorId) {
 
 // wraps executor-type dependent operation around common steps
 // such as all executor-related run cancellation, certificate removal, ...  
-async function execRemovalWith(runStopPromiseGenerator, afterStopPromiseGenerator, executor, forced) {
+async function execRemovalWith(afterStopPromiseGenerator, executor, forced) {
     const runStopPromises = (await getRunsByExecutor(executor.id))
         .filter((run) => run.status !== RunStatus.FAILED && run.status !== RunStatus.SUCCESS)
-        .map((run) =>  runStopPromiseGenerator(executor, run.id));
+        .map((run) =>  jobHandler.scheduleRunStop(run.job, run.id));
     try {
         await Promise.all(runStopPromises);
-        // waiting in case the promises just "sent stop requests" without waiting for the result
-        await (new Promise(((resolve) => setTimeout(resolve, 10000))));
+        // waiting because scheduling stop != actually stopping
+        //                                                         at least 10s
+        await (new Promise(((resolve) => setTimeout(resolve, 10000 + config.tasks.checkInterval))));
         await afterStopPromiseGenerator();
         await finalExecutorRemovalSteps(executor.id);
     } catch (err) {
@@ -279,7 +281,7 @@ async function execRemovalWith(runStopPromiseGenerator, afterStopPromiseGenerato
             await knex('jobs').where('executor_id', executor.id).update({ executor_id: 1 });
             return;
         }
-        await finalExecutorRemovalSteps(executorId).catch(() => null);
+        await finalExecutorRemovalSteps(executor.id).catch(() => null);
     }
 }
 
@@ -287,10 +289,10 @@ const executorDestructor = {
     // no await - this operation may take a long time (too long for the client form to wait)
     [MachineTypes.REMOTE_RUNNER_AGENT]: async (executor, tx, isForced) => {
         // this executor type must be removed manually
-        execRemovalWith(getRemoteHandler(MachineTypes.REMOTE_RUNNER_AGENT).stop, () => Promise.resolve(), executor, isForced);
+        execRemovalWith(() => Promise.resolve(), executor, isForced);
     },
     [MachineTypes.OCI_BASIC]: async (executor, tx, isForced) => {
-        execRemovalWith(getRemoteHandler(MachineTypes.OCI_BASIC).stop, async () => {
+        execRemovalWith(async () => {
             if (isForced) {
                 return await killPoolForced(executor);
             } else {
@@ -299,7 +301,7 @@ const executorDestructor = {
         }, executor, isForced);
     },
     [MachineTypes.SLURM_POOL]: async (executor, tx, isForced) => {
-        execRemovalWith(getRemoteHandler(MachineTypes.SLURM_POOL).stop, async () => await slurm.removePool(executor), executor, isForced);
+        execRemovalWith(async () => await slurm.removePool(executor), executor, isForced);
     },
 };
 
