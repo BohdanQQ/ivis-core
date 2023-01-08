@@ -345,7 +345,7 @@ if [[ "\\$${slurmIdVariable}" != "null" ]]; then
     rm -f ${execPaths.slurmRunOutputShellExpansion(slurmIdVariable, 'runId')} # remove run script output - comment this for debugging
     rm -f ${execPaths.runStdOutShellExpansion(slurmIdVariable)}
     rm -f ${execPaths.runStdErrShellExpansion(slurmIdVariable)}
-    sbatch --dependency afterany:"\\$${slurmIdVariable}" rm -f ${execPaths.runFinishedAtShellExpansion(slurmIdVariable)}
+    srun --dependency afterany:"\\$${slurmIdVariable}" rm -f ${execPaths.runFinishedAtShellExpansion(slurmIdVariable)}
 fi
 `;
 }
