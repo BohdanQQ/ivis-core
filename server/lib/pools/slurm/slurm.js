@@ -148,7 +148,7 @@ async function removeRun(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
     const command = scripts.getRunRemoveInvocation(runPaths);
     await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
-        await commandExecutor.execute(`srun ${command}`);
+        await commandExecutor.execute(`sbatch ${command}`);
     });
 }
 
