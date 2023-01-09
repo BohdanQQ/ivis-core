@@ -94,6 +94,30 @@ async function getHomeDir(commandExecutor) {
     return getCommandOutput(commandExecutor, 'echo ~');
 }
 
+function getSlurmPartition(executor) {
+    if (executor.parameters.partition) {
+        // not empty!
+        return executor.parameters.partition;
+    }
+    return null;
+}
+
+function getPartitionSwitchCommandPart(executor) {
+    const partition = getSlurmPartition(executor);
+    if (partition !== null) {
+        return ` -p ${partition}`;
+    }
+    return '';
+}
+
+function sbatchWithPartition(executor) {
+    return `sbatch${getPartitionSwitchCommandPart(executor)}`;
+}
+
+function srunWithPartition(executor) {
+    return `srun${getPartitionSwitchCommandPart(executor)}`;
+}
+
 /**
  * @param {any} executor
  * @param {string} archivePath local (IVIS-core) path to the task's code archive
@@ -120,7 +144,7 @@ async function run(executor, archivePath, runConfig, type, subtype) {
         }
 
         await createRunInput(taskPaths, runPaths, runConfig, commandExecutor);
-        const command = `sbatch ${scripts.getRunBuildInvocation(type, runPaths.runId, taskPaths, runPaths, archiveHash, toUseSubtype)}`;
+        const command = `${sbatchWithPartition(executor)} ${scripts.getRunBuildInvocation(type, runPaths.runId, taskPaths, runPaths, archiveHash, toUseSubtype)}`;
         await commandExecutor.execute(command);
     });
 }
@@ -133,7 +157,7 @@ async function stop(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
     await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
         try {
-            await commandExecutor.execute(`srun ${scripts.getRunStopInvocation(runPaths)}`);
+            await commandExecutor.execute(`${srunWithPartition(executor)} ${scripts.getRunStopInvocation(runPaths)}`);
         } catch (err) {
             // pass - job is not running
         }
@@ -148,7 +172,7 @@ async function removeRun(executor, runId) {
     const runPaths = new RunPaths(new ExecutorPaths(executor.id), runId);
     const command = scripts.getRunRemoveInvocation(runPaths);
     await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
-        await commandExecutor.execute(`sbatch ${command}`);
+        await commandExecutor.execute(`${sbatchWithPartition(executor)} ${command}`);
     });
 }
 
@@ -169,7 +193,7 @@ const slurmStateToIvisState = {
 
 async function getRemoteRunStateState(commandExecutor, runPaths) {
     try {
-        const lines = (await getCommandOutput(commandExecutor, `srun ${scripts.getRunStatusInvocation(runPaths)}`)).split('\n');
+        const lines = (await getCommandOutput(commandExecutor, `${srunWithPartition(executor)} ${scripts.getRunStatusInvocation(runPaths)}`)).split('\n');
         if (lines.length < 2) {
             log.error(LOG_ID, 'Status script should return 2-3 lines of output, only ', lines.length, 'given');
             return null;
@@ -208,7 +232,7 @@ async function status(executor, runId) {
     return await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
         const fileContentsOrNull = async (path) => {
             try {
-                const output = await getCommandOutput(commandExecutor, `srun cat ${path}`);
+                const output = await getCommandOutput(commandExecutor, `${srunWithPartition(executor)} cat ${path}`);
                 return output;
             } catch (err) {
                 return null;
@@ -250,10 +274,10 @@ async function status(executor, runId) {
     });
 }
 
-function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
+function getPoolInitCommands(executor, certCA, certKey, cert, homedir, partition) {
     const utilsRepoURL = config.slurm.utilsRepo.url;
     const utilsRepoCommit = config.slurm.utilsRepo.commit;
-    const execPaths = new ExecutorPaths(executorId);
+    const execPaths = new ExecutorPaths(executor.id);
     // create required directories
     const commands = [[execPaths.rootDirectory(), execPaths.tasksRootDirectory(), execPaths.certDirectory(), execPaths.cacheDirectory(),
         execPaths.outputsDirectory(), execPaths.inputsDirectory()]
@@ -299,13 +323,13 @@ function getPoolInitCommands(executorId, certCA, certKey, cert, homedir) {
 
     // this script is possible only when a sbtach script can execute sbatch
     // and saves a ton of internet traffic since everything is happening inside the cluster
-    commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths, homedir));
-    commands.push(...scripts.getRunRemoveScriptCreationCommands(execPaths));
+    commands.push(...scripts.getRunBuildScriptCreationCommands(execPaths, homedir, partition));
+    commands.push(...scripts.getRunRemoveScriptCreationCommands(execPaths, partition));
     commands.push(...scripts.getRunStopScriptCreationCommands(execPaths));
     commands.push(...scripts.getRunStatusScriptCreationCommands(execPaths));
     commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
-    // waits for the result
-    commands.push(`srun ${execPaths.remoteUtilsRepoDirectory()}/install.sh ${execPaths.remoteUtilsRepoDirectory()}`);
+    // srun waits for the result
+    commands.push(`${srunWithPartition(executor)} ${execPaths.remoteUtilsRepoDirectory()}/install.sh ${execPaths.remoteUtilsRepoDirectory()}`);
     return commands;
 }
 
@@ -328,7 +352,7 @@ async function createSlurmPool(executor, certificateGeneratorFunction) {
         key,
     } = certs.getExecutorCertKey(executor.id);
     await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
-        const commands = getPoolInitCommands(executor.id, ca, key, cert, await getHomeDir(commandExecutor));
+        const commands = getPoolInitCommands(executor, ca, key, cert, await getHomeDir(commandExecutor), getSlurmPartition(executor));
         for (const command of commands) {
             await commandExecutor.execute(command);
         }
@@ -344,7 +368,7 @@ async function createSlurmPool(executor, certificateGeneratorFunction) {
 async function removePool(executor) {
     const execPaths = new ExecutorPaths(executor.id);
     await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
-        await commandExecutor.execute(`srun rm -rf ${execPaths.rootDirectory()}`);
+        await commandExecutor.execute(`${srunWithPartition(executor)} rm -rf ${execPaths.rootDirectory()}`);
     });
 }
 

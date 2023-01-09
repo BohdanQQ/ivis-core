@@ -103,7 +103,7 @@ const MachineTypeParams = {
     {
         'id': 'username',
         'label': 'Username',
-        'help': 'the username to use when logging with SSH',
+        'help': 'The username to use when logging with SSH',
         'type': 'string',
     },
     {
@@ -111,6 +111,12 @@ const MachineTypeParams = {
         'label': 'Password',
         'help': 'Password to use when logging in',
         'type': 'password',
+    },
+    {
+        'id': 'partition',
+        'label': 'Partition',
+        'help': 'The name of the partition to use',
+        'type': 'string',
     },
     ],
 }

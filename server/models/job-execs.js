@@ -131,6 +131,11 @@ const executorInitializer = {
             let error = null;
             try {
                 log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
+                if (filteredEntity.parameters.partition) {
+                    const sanitized = filteredEntity.parameters.partition.split(' ')[0].trim();
+                    filteredEntity.parameters.partition = sanitized;
+                    await knex(EXEC_TABLE).where('id', filteredEntity.id).update({parameters: JSON.stringify(filteredEntity.parameters)});
+                }
                 await slurm.createSlurmPool(filteredEntity, () => generateCertificates(filteredEntity, '10.0.0.1', filteredEntity.parameters.hostname, null));
             } catch (err) {
                 error = err.error ? err.error : err;

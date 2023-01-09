@@ -187,11 +187,25 @@ function getBuildFailInformantScriptCreationCommands(execPaths) {
 }
 
 /**
+ * @param {string} paritionValue 
+ * @returns {string} 
+ */
+function getPartitionSwitchCommandPart(paritionValue) {
+    if (!paritionValue) {
+        return '';
+    }
+    return ` -p ${paritionValue}`;
+}
+
+/**
  *
  * @param {ExecutorPaths} execPaths
+ * @param {string} homedir absolute (and expanded) path to the directory
+ * @param {string?} partition
  * @returns {string}
  */
-function getRunBuildScript(execPaths, homedir) {
+function getRunBuildScript(execPaths, homedir, partition) {
+    const partitionSwitch = getPartitionSwitchCommandPart(partition);
     return `#!/bin/bash
 #SBATCH --output ${execPaths.outputsDirectoryWithHomeDir(homedir)}/runbuild-%j
 # the build & run script
@@ -224,13 +238,13 @@ startScriptPath=\\$1; shift
 thisBuildOutputPath="nocheck"
 
 scheduleBuild () {
-    srun tar -xf "\\$taskDirectory"/____buildtaskarchive --directory="\\$taskDirectory"
+    srun${partitionSwitch} tar -xf "\\$taskDirectory"/____buildtaskarchive --directory="\\$taskDirectory"
     local buildId
-    buildId=\\$(sbatch --parsable "\\$initScriptPath" "\\$taskDirectory" "\\$@")
+    buildId=\\$(sbatch${partitionSwitch} --parsable "\\$initScriptPath" "\\$taskDirectory" "\\$@")
     thisBuildOutputPath="\\$outputsPath"/IVIS-build-"\\$buildId".out
     # cleanup script also sets cached flag and removes the build lock
     local buildFinishId
-    buildFinishId=\\$( sbatch --parsable --output=/dev/null --dependency=afterany:"\\$buildId" ${execPaths.buildOutputCleanScriptPath()} "\\$thisBuildOutputPath" "\\$cacheValidityGuard" "\\$cacheRecordPath" )
+    buildFinishId=\\$( sbatch${partitionSwitch} --parsable --output=/dev/null --dependency=afterany:"\\$buildId" ${execPaths.buildOutputCleanScriptPath()} "\\$thisBuildOutputPath" "\\$cacheValidityGuard" "\\$cacheRecordPath" )
     echo "\\$buildFinishId"
 }
 
@@ -250,7 +264,7 @@ if [[ "\\$cacheCheckResult" == "notCached" ]]; then
     if (set -o noclobber;true>\\$buildLockPath) &>/dev/null; then 
         # the above fails if another build has already started...
         # therefore if no builds have started, start building
-        srun cp "\\$taskDirectory"/____taskarchive "\\$taskDirectory"/____buildtaskarchive
+        srun${partitionSwitch} cp "\\$taskDirectory"/____taskarchive "\\$taskDirectory"/____buildtaskarchive
         scheduleBuild "\\$@" > "\\$buildLockPath"
     fi
     # in case the above if has not run, we wait a moment for the srun to schedule the jobs and
@@ -267,7 +281,7 @@ fi
 
 # submit run job
 # when a run starts, it is ensured that the build is cached
-sbatch --parsable \\$dependSwitch --job-name="\\$runJobName" "\\$startScriptPath" \\
+sbatch${partitionSwitch} --parsable \\$dependSwitch --job-name="\\$runJobName" "\\$startScriptPath" \\
 "\\$taskDirectory" "\\$pathToRunInput" "\\$thisBuildOutputPath" \\
 ${execPaths.buildFailInformantScriptPath()} \\
 "\\$failEvType" "\\$runId" "${execPaths.outputsDirectoryWithHomeDir(homedir)}/runbuild-\\$${JOB_ID_ENVVAR}" \\
@@ -280,10 +294,11 @@ ${RemoteRunState.RUNNING} > "\\$idMappingPath"
 /**
  * @param {ExecutorPaths} execPaths
  * @param {string} homedir absolute (and expanded) path to the directory
+ * @param {string?} partition
  * @returns {[string]}
  */
-function getRunBuildScriptCreationCommands(execPaths, homedir) {
-    return createScriptHelper(execPaths.runBuildScriptPath(), getRunBuildScript(execPaths, homedir));
+function getRunBuildScriptCreationCommands(execPaths, homedir, partition) {
+    return createScriptHelper(execPaths.runBuildScriptPath(), getRunBuildScript(execPaths, homedir, partition));
 }
 
 /**
@@ -330,9 +345,11 @@ function getRunBuildInvocation(taskType, runId, taskPaths, runPaths, cacheValidi
 
 /**
  * @param {ExecutorPaths} execPaths
+ * @param {string?} partition
  * @returns {string}
  */
-function getRunRemoveScript(execPaths) {
+function getRunRemoveScript(execPaths, partition) {
+    const partitionSwitch = getPartitionSwitchCommandPart(partition);
     const slurmIdVariable = 'jobId';
     return `#!/bin/bash
 #SBATCH --output /dev/null
@@ -346,7 +363,7 @@ if [[ "\\$${slurmIdVariable}" != "null" ]]; then
     rm -f ${execPaths.slurmRunOutputShellExpansion(slurmIdVariable, 'runId')} # remove run script output - comment this for debugging
     rm -f ${execPaths.runStdOutShellExpansion(slurmIdVariable)}
     rm -f ${execPaths.runStdErrShellExpansion(slurmIdVariable)}
-    srun --dependency afterany:"\\$${slurmIdVariable}" rm -f ${execPaths.runFinishedAtShellExpansion(slurmIdVariable)}
+    srun${partitionSwitch} --dependency afterany:"\\$${slurmIdVariable}" rm -f ${execPaths.runFinishedAtShellExpansion(slurmIdVariable)}
 fi
 `;
 }
@@ -362,10 +379,11 @@ function getRunRemoveInvocation(runPaths) {
 /**
  *
  * @param {ExecutorPaths} execPaths
+ * @param {string?} partition
  * @returns {[string]}
  */
-function getRunRemoveScriptCreationCommands(execPaths) {
-    return createScriptHelper(execPaths.runRemoveScriptPath(), getRunRemoveScript(execPaths));
+function getRunRemoveScriptCreationCommands(execPaths, partition) {
+    return createScriptHelper(execPaths.runRemoveScriptPath(), getRunRemoveScript(execPaths, partition));
 }
 
 function getRunStopScript() {
