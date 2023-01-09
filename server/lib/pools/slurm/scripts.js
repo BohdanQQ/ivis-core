@@ -94,6 +94,7 @@ curl --cert ${certPath} --key ${keyPath} ${config.oci.ivisSSLCertVerifiableViaRo
 }
 
 // TODO export from 1 place (python-handler also uses these)
+// apparent conflict with the intention (specified in python-handler) to pull those things from the config??
 const defaultPythonLibs = ['elasticsearch6', 'requests'];
 const ptyhonTaskSubtypeSpecs = {
     [defaultSubtypeKey]: {

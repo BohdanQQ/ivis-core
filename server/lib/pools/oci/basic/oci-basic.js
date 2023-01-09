@@ -139,7 +139,6 @@ async function getInstanceVnic(instanceId) {
 }
 
 async function fallthroughIfError({ error, result }, promiseGenerator) {
-    // TODO check this is executed
     if (error) {
         return {
             error,
@@ -189,7 +188,6 @@ async function createPoolPeers(amount, execId, subnetId, params) {
     const peerCreationResults = await Promise.all(peerPromises);
     if (createdInstanceIds.length !== amount) {
         log.error(LOG_ID, `Length ${createdInstanceIds.length} not matching pool size ${amount}`);
-        // TODO? destroyAllOkPeers
         const firstError = peerCreationResults.filter((result) => result.error)[0].error
             || new Error('At least one pool peer was not created yet no error was found!');
         throw firstError;
@@ -298,7 +296,6 @@ function convertParams(params) {
 }
 
 // OCI Homogenous pool:
-// TODO: mutex all 3 fns?
 /**
  * @callback certificateGenerator
  * @param {string} ip - the IP address associated with the pool master
