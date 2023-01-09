@@ -335,6 +335,7 @@ function getRunBuildInvocation(taskType, runId, taskPaths, runPaths, cacheValidi
 function getRunRemoveScript(execPaths) {
     const slurmIdVariable = 'jobId';
     return `#!/bin/bash
+#SBATCH --output /dev/null
 runInputPath=\\$1; shift
 runIdMappingPath=\\$1; shift
 runId=\\$1; shift
@@ -369,6 +370,7 @@ function getRunRemoveScriptCreationCommands(execPaths) {
 
 function getRunStopScript() {
     return `#!/bin/bash
+#SBATCH --output /dev/null
 runIdtoSlurmIdMappingPath=\\$1; shift
 slurmRunId=\\$( cat "\\$runIdtoSlurmIdMappingPath" || echo "null" )
 if [[ "\\$slurmRunId" != "null" ]]; then 
