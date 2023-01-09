@@ -339,7 +339,7 @@ function getRPSSetupCommands(peerPrivateIps, masterInstancePrivateIp, masterInst
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PEER_PORT_TRUSTED} -j POOL_PEER_ACCESS`,
         `sudo iptables -I INPUT -p tcp --dport ${RPS_PUBLIC_PORT} -j ACCEPT`, // make public port public (topmost rule)
         `git clone ${config.oci.peerRPSRepo.url} ${CLONE_FOLDER_RPS}`,
-        cmdInRepo(`git checkout ${config.oci.peerRPSRepo.commit}`),
+        cmdInRepo((config.oci.peerRPSRepo.commit ? `git checkout ${config.oci.peerRPSRepo.commit}` : 'echo Using the master HEAD')),
         cmdInRepo('mkdir ./cert'),
         cmdInRepo(`cat > ./config/default.yml << HEREDOC_EOF\n${rpsConfigContents}\nHEREDOC_EOF`),
         cmdInRepo(`cat > ./config/apache/vhosts.conf << HEREDOC_EOF\n${apacheConfigContents}\nHEREDOC_EOF`),
