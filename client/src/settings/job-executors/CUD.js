@@ -282,7 +282,7 @@ export default class CUD extends Component {
                     backUrl={`/settings/job-executors/${this.props.entity.id}/edit`}
                     successUrl="/settings/job-executors"
                     deletingMsg={t('Deleting job executor ...')}
-                    deletedMsg={t('Job executor deleted')}/>
+                    deletedMsg={t('Deleting job executor in the background. You may monitor status and log for more information, executor will be removed automatically')}/>
                 }
 
                 <Form stateOwner={this} onSubmitAsync={::this.submitHandler}>
