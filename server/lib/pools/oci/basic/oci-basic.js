@@ -4,6 +4,7 @@ const {
     getGlobalStateForOCIExecType,
     INSTANCE_SSH_PORT,
     registerPoolRemoval,
+    getVcn,
 } = require('./global-state');
 const {
     virtualNetworkClient, virtualNetworkWaiter, COMPARTMENT_ID, TENANCY_ID, identityClient,
@@ -179,7 +180,7 @@ async function createPoolPeers(amount, execId, subnetId, params) {
     const peerIndicies = new Array(amount).fill(0).map((_, i) => i);
     const createdInstanceIds = [];
     const peerPromises = peerIndicies.map((peerIdx) => createPoolPeer(execId, peerIdx, subnetId, params)
-    // using fallthrough here because I want all the promises to resolve / wait for the peer machine to be created
+        // using fallthrough here because I want all the promises to resolve / wait for the peer machine to be created
         .then((res) => fallthroughIfError(res, (instanceId) => {
             createdInstanceIds.push(instanceId);
         })));
@@ -317,7 +318,14 @@ async function createOCIBasicPool(executorId, params, certificateGeneratorFuncti
     };
     params = convertParams(params);
     try {
+        // ensures networking is set up
+        await getVcn();
         const executorGlobalState = await getGlobalStateForOCIExecType(knex);
+        if (executorGlobalState === null) {
+            log.error(LOG_ID, 'OCI Global state is busy, please try again later');
+            throw new Error('OCI Global state is busy, please try again later. Check out the OCI global state log.');
+        }
+
         const {
             subnetMask,
         } = await createNewPoolParameters();
@@ -360,7 +368,6 @@ async function saveState(execId, stateToSave) {
     await knex(EXEC_TABLE).update({ state: JSON.stringify(stateToSave) }).where('id', execId);
 }
 
-
 async function shutdownSubnet(subnetId) {
     log.verbose(LOG_ID, 'Removing subnet with id', subnetId);
     const terminationRequest = {
@@ -368,21 +375,6 @@ async function shutdownSubnet(subnetId) {
     };
 
     await virtualNetworkClient.deleteSubnet(terminationRequest);
-
-    try {
-        await virtualNetworkWaiter.forSubnet(
-            {
-                subnetId: subnetId
-            },
-            core.models.Subnet.LifecycleState.Terminated
-        );
-    } catch (err) {
-        if (!((err.statusCode && err.statusCode === 404) || (err.errorObject && err.errorObject.statusCode && err.errorObject.statusCode === 404))) {
-            console.dir(err);
-            throw err;
-        }
-        // do nothing  (meaning the subnet was removed and no waiting needs to be done)
-    }
 
     log.verbose(LOG_ID, 'Removed subnet with id', subnetId);
 }

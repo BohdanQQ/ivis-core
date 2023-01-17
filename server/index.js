@@ -5,6 +5,7 @@ const emCommonDefaults = require('../shared/em-common-defaults');
 const config = require('./lib/config');
 const translate = require('./lib/translate');
 const jobExecutors= require('./models/job-execs');
+const execTypeCommons= require('./models/exec-type-global-state-commons');
 const knex = require('./lib/knex');
 const log = require('./lib/log');
 const https = require('https');
@@ -82,6 +83,7 @@ async function initAndStart() {
     await templates.compileAll();
     await tasks.compileAll();
     await jobExecutors.failAllProvisioning();
+    await execTypeCommons.unlockAllTypes();
 
     await em.invokeAsync('services.start');
 

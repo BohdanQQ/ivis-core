@@ -24,6 +24,7 @@ import {
 } from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 import {withTranslation} from "../../lib/i18n";
+import {getUrl} from "../../lib/urls";
 import { ExecutorStatus, MachineTypes } from '../../../../shared/remote-run';
 
 @withComponentMixins([
@@ -45,11 +46,13 @@ export default class List extends Component {
             createExec: {
                 entityTypeId: 'namespace',
                 requiredOperations: ['createExec']
-            }
+            },
+            types: { entityTypeId: 'namespace', requiredOperations: ['manageGlobalExecState'] }
         });
 
         this.setState({
-            createPermitted: result.data.createExec
+            createPermitted: result.data.createExec,
+            typesPermitted: result.data.types
         });
     }
 
@@ -129,9 +132,19 @@ export default class List extends Component {
             }
         ];
 
+        const panelMenu = [];
+        if (this.state.typesPermitted) {
+            panelMenu.push({
+                label: 'Global State Management',
+                action: ''
+            });
+        }
+
         const dataUrl = "rest/job-exec-table";
         return (
-            <Panel title={t('Job Executors')}>
+            <Panel title={t('Job Executors')} onPanelMenuAction={action => {
+                window.location.href = getUrl('settings/job-executors/global')
+            }} panelMenu={panelMenu}>
                 {tableRestActionDialogRender(this)}
                 {this.state.createPermitted &&
                     <Toolbar>

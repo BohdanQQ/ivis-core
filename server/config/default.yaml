@@ -185,9 +185,9 @@ roles:
     master:
       name: "Master"
       description: "All permissions"
-      permissions: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec", "viewCerts"]
+      permissions: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec", "viewCerts", "manageGlobalExecState"]
       children:
-        namespace: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec"]
+        namespace: ["view", "edit", "delete", "share", "createNamespace", "createTemplate", "createJob", "createTask", "createWorkspace", "createPanel", "createSignal", "createSignalSet", "manageUsers", "createAlert", "createExec", "manageGlobalExecState"]
         template: ["view", "edit", "delete", "share", "execute", "viewFiles", "manageFiles"]
         job: ["view", "edit", "delete", "share", "execute", "viewFiles", "manageFiles"]
         task: ["view", "edit", "delete", "share", "execute", "viewFiles", "manageFiles"]

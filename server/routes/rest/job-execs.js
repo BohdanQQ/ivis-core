@@ -2,6 +2,7 @@
 
 const passport = require('../../lib/passport');
 const jobExecs = require('../../models/job-execs');
+const execTypes = require('../../models/exec-type-global-state-commons');
 const router = require('../../lib/router-async').create();
 const { MachineTypeParams } = require('../../../shared/remote-run');
 const interoperableErrors = require('../../../shared/interoperable-errors');
@@ -47,6 +48,14 @@ router.putAsync('/job-executors/:execId', passport.loggedIn, passport.csrfProtec
 
 router.getAsync('/job-executors/:execId/certs', passport.loggedIn, async (req, res) => {
     return res.json(await jobExecs.getAllCerts(req.context, castToInteger(req.params.execId)));
+});
+
+router.postAsync('/job-executor-types', passport.loggedIn, async (req, res) => {
+    return res.json(await execTypes.listTypesDTAjax(req.context, req.body));
+});
+
+router.getAsync('/job-executors/global/:type', passport.loggedIn, async (req, res) => {
+    return res.json(await execTypes.getByType(req.context, req.params.type));
 });
 
 module.exports = router;

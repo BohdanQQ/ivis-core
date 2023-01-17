@@ -65,6 +65,7 @@ import JobExecList from './settings/job-executors/List';
 import JobExecCUD from './settings/job-executors/CUD';
 import CertDisplay from './settings/job-executors/CertDisplay';
 import ExecutorLog from './settings/job-executors/ExecutorLog';
+import GlobalTypesList from './settings/job-executors/GlobalTypeMgmt'
 
 import SettingsSidebar from './settings/Sidebar';
 
@@ -712,6 +713,31 @@ const getStructure = t => {
                     'job-executors': {
                         title: t('Job Executors'),
                         link: '/settings/job-executors',
+                        navs: {
+                            global: {
+                                title: t('Global State Management'),
+                                link: `/settings/job-executors/global`,
+                                panelRender: props => <GlobalTypesList/>,
+                                children: {
+                                    ':type': {
+                                        title: resolved => t('Executor Type "{{type}}"', {type: resolved.execType.type}),
+                                        resolve: {
+                                            execType: params => `rest/job-executors/global/${params.type}`
+                                        },
+                                        navs: {
+                                            log: {
+                                                title: t('Log'),
+                                                link: params => `/settings/job-executors/global/${params.type}/log`,
+                                                panelRender: props => 
+                                                    <Panel title={t('Executor Type log of ') + props.resolved.execType.type}>
+                                                        <ExecutorLog log={props.resolved.execType.log} />
+                                                    </Panel>
+                                            },
+                                        }
+                                    }
+                                }
+                            }
+                        },
                         panelComponent: JobExecList,
                         children: {
                             ':execId([0-9]+)': {

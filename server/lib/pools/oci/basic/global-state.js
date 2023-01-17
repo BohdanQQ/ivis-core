@@ -6,10 +6,10 @@ const {
 } = require('./clients');
 const { MachineTypes } = require('../../../../../shared/remote-run');
 const { REQUIRED_ALLOWED_PORTS } = require('./rjr-setup');
+const stateCommons = require('../../../../models/exec-type-global-state-commons');
 
 const LOG_ID = 'ocibasic-global-state';
 const EXECUTOR_TYPE = MachineTypes.OCI_BASIC;
-const GLOBAL_EXEC_STATE_TABLE = 'global_executor_type_state';
 const VCN_CIDR_BLOCK = '11.0.0.0/16';
 const RESERVED_VCN_NAME = 'IVIS-POOL-VCN';
 const INSTANCE_SSH_PORT = 22;
@@ -198,78 +198,81 @@ async function tryToDiscoverVCNId() {
     return null;
 }
 
-let setupTask = null;
 /**
  * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success
  */
 async function setupVcnIfNeeded() {
     const vcnId = await tryToDiscoverVCNId();
 
-    const state = await getGlobalStateForOCIExecType(knex);
-    if (setupTask === null) {
-        const vcnExists = vcnId !== null;
-        const networkingIsOk = state.vnc && state.routeTable && state.gateway && state.securityList;
-        if (vcnExists && networkingIsOk) {
-            setupTask = undefined;
-            log.info(LOG_ID, `Already existing VCN + all network parameters are present in state: ${state}`);
-            return {
-                vcn: state.vcn, routeTable: state.routeTable, gateway: state.gateway, securityList: state.securityList, err: null,
-            };
-        }
-
-        log.info(LOG_ID, 'Starting VCN setup task');
-        setupTask = vcnExists ? tryRecoverOCINetwork(vcnId) : setupOCINetwork();
-        const result = await setupTask;
-        setupTask = undefined;
-
-        const diff = { ...result };
-        delete diff.err;
-        await updateStateWithDiff(diff);
-        return result;
-    }
-    if (setupTask === undefined) {
-        log.info(LOG_ID, 'VCN setup task has already run -> return state values:', state);
+    const state = await assumesLocked_getGlobalStateForOCIExecType(knex);
+    const vcnExists = vcnId !== null;
+    const networkingIsOk = state.vnc && state.routeTable && state.gateway && state.securityList;
+    if (vcnExists && networkingIsOk) {
+        log.info(LOG_ID, `Already existing VCN + all network parameters are present in state: ${state}`);
         return {
             vcn: state.vcn, routeTable: state.routeTable, gateway: state.gateway, securityList: state.securityList, err: null,
         };
     }
 
-    log.info(LOG_ID, 'VCN setup task has already started but has not finished -> wait for the task to finish');
-    return await setupTask;
+    log.info(LOG_ID, 'Starting VCN setup task');
+    const result = await (vcnExists ? tryRecoverOCINetwork(vcnId) : setupOCINetwork());
+
+    const diff = { ...result };
+    delete diff.err;
+    await updateStateWithDiff(diff);
+
+    return result;
 }
 
-async function getVcn() {
-    checkOCICanBeUsed();
-    const state = await getGlobalStateForOCIExecType(knex);
+async function impl_getVcn() {
+    const state = await assumesLocked_getGlobalStateForOCIExecType(knex);
     if (state.vcn) {
         log.info(LOG_ID, 'VCN ID retrieved from global state: ', state);
         try {
             if (await isSavedVcnOk(state.vcn)) {
                 return state.vcn;
             } // otherwise reset the state vcn and recreate the vcn
+            await stateCommons.appendToLogByType(`OCI networking error: saved VCN ${state.vcn} incorrect/missing, trying to recover...\nEntire state: ${JSON.stringify(state)}`);
 
             await updateStateWithDiff({ vcn: null });
         } catch (err) {
             log.error(LOG_ID, 'saved VCN check failed', err);
+            await stateCommons.appendToLogByType(`OCI networking error: VCN check failed, trying to recover...\nEntire state: ${JSON.stringify(state)}\nError: ${err}`);
             await updateStateWithDiff({ vcn: null });
         }
     }
     const vcnCreationResult = await setupVcnIfNeeded();
     if (!vcnCreationResult.vcn || !vcnCreationResult.routeTable || !vcnCreationResult.gateway || !vcnCreationResult.securityList || vcnCreationResult.err) {
+        await stateCommons.appendToLogByType(`Unable to initialize OCI networking:\n\nParially correct state (with error): ${JSON.stringify(vcnCreationResult)}`);
         throw vcnCreationResult.err;
     }
     return vcnCreationResult.vcn;
 }
 
+async function getVcn() {
+    return await stateManipulationWrapper(impl_getVcn);
+}
+
 /**
- * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string}}
+ * @returns { Promise<{vcn: string, routeTable: string, gateway: string, securityList: string}>}
  */
-async function getGlobalStateForOCIExecType(tx) {
-    const json = (await tx(GLOBAL_EXEC_STATE_TABLE).where('type', EXECUTOR_TYPE).first()).state;
+async function assumesLocked_getGlobalStateForOCIExecType(tx) {
+    const json = await stateCommons.getRawStateByType(EXECUTOR_TYPE, tx);
     if (!json) {
         throw new Error(`State for executor of type ${EXECUTOR_TYPE} not found`);
     }
     return JSON.parse(json);
+}
+
+/**
+ * @returns { Promise<{vcn: string, routeTable: string, gateway: string, securityList: string}>} null if the global state is locked
+ */
+async function getGlobalStateForOCIExecType(tx) {
+    try {
+        return await stateManipulationWrapper(async () => await assumesLocked_getGlobalStateForOCIExecType(tx));
+    } catch (err) {
+        throw err;
+    }
 }
 
 function getStateForDb(state) {
@@ -296,14 +299,12 @@ function getStateForDb(state) {
 }
 
 async function updateState(tx, state) {
-    await tx(GLOBAL_EXEC_STATE_TABLE).where('type', EXECUTOR_TYPE).update({
-        state: getStateForDb(state),
-    });
+    await stateCommons.setRawStateByType(EXECUTOR_TYPE, getStateForDb(state), tx);
 }
 
 async function updateStateWithDiff(diffObj) {
     return await knex.transaction(async (tx) => {
-        const state = await getGlobalStateForOCIExecType(tx);
+        const state = await assumesLocked_getGlobalStateForOCIExecType(tx);
         log.silly(LOG_ID, 'global state update from ', state);
         Object.keys(diffObj).forEach((key) => { state[key] = diffObj[key]; });
         log.silly(LOG_ID, 'global state update to ', state);
@@ -336,7 +337,7 @@ function getNextAvailableIpRange(ipsUsed) {
 /** returns sorted (ascending) IP address allocation */
 async function getIPsUsed() {
     return await knex.transaction(async (tx) => {
-        const state = await getGlobalStateForOCIExecType(tx);
+        const state = await assumesLocked_getGlobalStateForOCIExecType(tx);
         const ipsUsed = state.ipsUsed || [];
         ipsUsed.sort((a, b) => a.index - b.index);
         return ipsUsed;
@@ -350,11 +351,37 @@ async function storeIPsUsed(ipsUsed) {
 }
 
 /**
+ * Wraps a closure call with locking logic, returning whatever the closure returns
+ * while ensuring consistent unlocking
+ * @param {function} closure 
+ * @returns 
+ */
+async function stateManipulationWrapper(closure) {
+    if (!virtualNetworkClient || !virtualNetworkWaiter || !COMPARTMENT_ID) {
+        throw new Error('Oracle cloud infrastructure is misconfigured and cannot be used!');
+    }
+
+    const gotLock = await stateCommons.tryLock(EXECUTOR_TYPE, 3, 200);
+    if (!gotLock) {
+        throw new Error('Unable to accquire OCI pool state lock, please try again later');
+    }
+    try {
+        const closureRetval = await closure();
+
+        await stateCommons.unlockStateByType(EXECUTOR_TYPE);
+
+        return closureRetval;
+    } catch (err) {
+        await stateCommons.unlockStateByType(EXECUTOR_TYPE);
+        throw err;
+    }
+}
+
+/**
  * Allocates from the "global" resources for use in a pool
  * @returns {Promise<{subnetMask: string}>}
  */
-async function createNewPoolParameters() {
-    checkOCICanBeUsed();
+async function impl_createNewPoolParameters() {
     const ipsUsed = await getIPsUsed();
     const ipRange = getNextAvailableIpRange(ipsUsed);
     if (ipRange === null) {
@@ -363,6 +390,7 @@ async function createNewPoolParameters() {
 
     ipsUsed.push(ipRange);
     await storeIPsUsed(ipsUsed);
+    await stateCommons.unlockStateByType(EXECUTOR_TYPE);
 
     return {
         subnetMask: `11.0.${ipRange.index}.0/24`,
@@ -370,11 +398,28 @@ async function createNewPoolParameters() {
 }
 
 /**
+ * Allocates from the "global" resources for use in a pool
+ * @returns {Promise<{subnetMask: string}>}
+ */
+async function createNewPoolParameters() {
+    return await stateManipulationWrapper(impl_createNewPoolParameters);
+}
+
+/**
+ * Frees specific IP which matches on an index
+ * @param {number} indexToRemove
+ */
+async function impl_removeIpIndex(indexToRemove) {
+    let ipsUsed = await getIPsUsed();
+    ipsUsed = ipsUsed.filter((x) => x.index !== indexToRemove);
+    await storeIPsUsed(ipsUsed);
+}
+
+/**
  * Frees up any allocation of the "global" resources for use in other pools
  * @param {{subnetMask: string}} poolParameters
  */
 async function registerPoolRemoval(poolParameters) {
-    checkOCICanBeUsed();
     if (!poolParameters || !poolParameters.subnetMask) {
         return;
     }
@@ -388,22 +433,14 @@ async function registerPoolRemoval(poolParameters) {
     if (indexToRemove <= 0 || indexToRemove >= 255) {
         throw new Error(`Invalid subnetMask provided: ${subnetMask}`);
     }
-    let ipsUsed = await getIPsUsed();
-    ipsUsed = ipsUsed.filter((x) => x.index !== indexToRemove);
-    await storeIPsUsed(ipsUsed);
-}
 
-function checkOCICanBeUsed() {
-    if (!virtualNetworkClient || !virtualNetworkWaiter || !COMPARTMENT_ID) {
-        throw new Error('Oracle cloud infrastructure is misconfigured and cannot be used!');
-    }
+    return await stateManipulationWrapper(async () => await impl_removeIpIndex(indexToRemove));
 }
 
 module.exports = {
     createNewPoolParameters,
     registerPoolRemoval,
     getVcn,
-    VCN_CIDR_BLOCK,
     getGlobalStateForOCIExecType,
     INSTANCE_SSH_PORT,
 };
