@@ -132,22 +132,18 @@ export default class List extends Component {
             }
         ];
 
-        const panelMenu = [];
-        if (this.state.typesPermitted) {
-            panelMenu.push({
-                label: 'Global State Management',
-                action: ''
-            });
-        }
 
         const dataUrl = "rest/job-exec-table";
         return (
-            <Panel title={t('Job Executors')} onPanelMenuAction={action => {
-                window.location.href = getUrl('settings/job-executors/global')
-            }} panelMenu={panelMenu}>
+            <Panel title={t('Job Executors')}>
                 {tableRestActionDialogRender(this)}
                 {this.state.createPermitted &&
                     <Toolbar>
+                        {
+                            this.state.typesPermitted &&
+                            <LinkButton to="/settings/job-executors/global" className="btn-primary" icon="wrench"
+                                    label={t('Global State Management')}/>
+                        }
                         <LinkButton to="/settings/job-executors/create" className="btn-primary" icon="plus"
                                 label={t('Create Job Executor')}/>
                     </Toolbar>
