@@ -114,7 +114,7 @@ export default class List extends Component {
                         });
                     }
 
-                    tableAddDeleteButton(actions, this, perms, `rest/job-executors/${data[0]}`, data[1], t('Deleting job executor ...'), t('Job executor deleted'));
+                    tableAddDeleteButton(actions, this, perms, `rest/job-executors/${data[0]}`, data[1], t('Deleting job executor ...'), t('Deleting job executor in the background. You may monitor status and log for more information, executor will be removed automatically'));
                     
                     if (perms.includes('delete')) {
                         tableAddRestActionButtonWithDefaultErrorHandler(actions, this, {
