@@ -32,7 +32,7 @@ export default class List extends Component {
 
     @withAsyncErrorHandler
     async clean(table, type) {
-        // TODO
+        await axios.post(getUrl(`rest/job-executors/global/${type}/clean`));
         table.refresh();
     }
 

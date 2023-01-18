@@ -100,6 +100,17 @@ async function appendToLogByType(contents, type) {
         .update({ log: knex.raw('CONCAT(COALESCE(`log`,\'\'), ?)', (contents + '\n')) });
 }
 
+/** 
+ * @param {string} type 
+ */
+async function clearLogByType(type) {
+    checkValidType(type);
+    await knex(GLOBAL_EXEC_STATE_TABLE)
+        .where('type', type)
+        .update({ log: '' });
+}
+
+
 /**
  * @param {string} type 
  * @param {string} state 
@@ -177,5 +188,6 @@ module.exports = {
     tryLock,
     listTypesDTAjax,
     unlockAllTypes,
-    getByType
+    getByType,
+    clearLogByType
 };

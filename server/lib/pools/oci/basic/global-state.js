@@ -65,14 +65,22 @@ async function createGateway(vcnId) {
     return gatewayResponse.internetGateway.id;
 }
 
-async function addGatewayToVcnRouteTable(vcnId, gatewayId) {
+async function getRouteTableId(vcnId, expectedId) {
     let tableId = null;
     for await (const table of virtualNetworkClient.listAllRouteTables({ compartmentId: COMPARTMENT_ID, vcnId })) {
-        log.verbose(LOG_ID, `picking up (presumably default) route table: ${table}`);
+        log.verbose(LOG_ID, `picking up (presumably default) route table: ${table.id}`);
         tableId = table.id;
+        if (expectedId && tableId === expectedId) {
+            break;
+        }
     }
 
     if (!tableId) { throw new Error(`No Route Table found for table in compartment ${COMPARTMENT_ID} under VCN ${vcnId}`); }
+    return tableId;
+}
+
+async function addGatewayToVcnRouteTable(vcnId, gatewayId) {
+    const tableId = await getRouteTableId(vcnId);
 
     log.info(LOG_ID, `updating route table rules for table ${tableId}`);
     const tableUpdateResponse = await virtualNetworkClient.updateRouteTable({
@@ -437,10 +445,112 @@ async function registerPoolRemoval(poolParameters) {
     return await stateManipulationWrapper(async () => await impl_removeIpIndex(indexToRemove));
 }
 
+async function getSubnetCount(vcnId) {
+    return (await virtualNetworkClient.listSubnets({ compartmentId: COMPARTMENT_ID, vcnId })).items.lenght;
+}
+
+async function tryRemoveResource(removalClosure, resourceIdForLogging, resourceNameForLogging) {
+    if (!resourceIdForLogging) {
+        await stateCommons.appendToLogByType(`Invalid ${resourceNameForLogging} ID detected, cannot be wiped: ${resourceIdForLogging}`, EXECUTOR_TYPE);
+        return false;
+    }
+    try {
+        await removalClosure();
+        return true;
+    } catch (err) {
+        await stateCommons.appendToLogByType(`${resourceNameForLogging} cannot be wiped: id: ${resourceIdForLogging}\nError:\n${err}`, EXECUTOR_TYPE);
+        return false;
+    }
+}
+
+async function tryRemoveGatewayFromRouteTable(vcnId, expectedTableId) {
+    try {
+        const foundTableId = await getRouteTableId(vcnId, expectedTableId);
+        if (foundTableId !== expectedTableId) {
+            stateCommons.appendToLogByType(`Unexpected Route Table ID: ${foundTableId}, expected value: ${expectedTableId}`, EXECUTOR_TYPE);
+            return false;
+        }
+        await virtualNetworkClient.updateRouteTable({
+            rtId: foundTableId,
+            updateRouteTableDetails: {
+                routeRules: [],
+            },
+        });
+        return true;
+    } catch (err) {
+        await stateCommons.appendToLogByType(`Gateway-routetable relationship cannot be wiped: id: ${vcnId}, ${expectedTableId}\nError:\n${err}`, EXECUTOR_TYPE);
+        return false;
+    }
+}
+
+async function tryRemoveGateway(gatewayId) {
+    return await tryRemoveResource(async () => await virtualNetworkClient.deleteInternetGateway({ igId: gatewayId }), gatewayId, 'Gateway');
+}
+
+async function tryRemoveSecurityList(securityListId) {
+    return await tryRemoveResource(async () => await virtualNetworkClient.deleteSecurityList({ securityListId }), securityListId, 'SecurityList');
+}
+
+async function tryRemoveVCN(vcnId) {
+    return await tryRemoveResource(async () => {
+        if ((await getSubnetCount(vcnId)) > 0) {
+            throw new Error("VCN must be empty (without subnets) before removal");
+        }
+        await virtualNetworkClient.deleteVcn({ vcnId });
+    }, vcnId, 'Virtual Cloud Network');
+}
+
+async function impl_clearState() {
+    const executorCount = await stateCommons.getExecCountByType(EXECUTOR_TYPE);
+    if (executorCount > 0) {
+        throw new Error("Cannot clear state of an executor type which has executors deployed");
+    }
+
+    const state = await assumesLocked_getGlobalStateForOCIExecType(knex);
+
+    if (state.vcn !== null && state.routeTable !== null) {
+        if (await tryRemoveGatewayFromRouteTable(state.vcn, state.routeTable)) {
+            const gwRemovalSuccess = await tryRemoveGateway(state.gateway);
+            if (gwRemovalSuccess) {
+                state.gateway = null;
+                await updateState(knex, state);
+            }
+        }
+    }
+    else if (state.routeTable !== null) {
+        throw new Error(`Invalid partial state with route table but no VCN. Table ID: ${routeTable}`);
+    }
+
+    if (state.securityList !== null) {
+        const slRemovalSuccess = await tryRemoveSecurityList(state.securityList);
+        if (slRemovalSuccess) {
+            state.securityList = null;
+            await updateState(knex, state);
+        }
+    }
+
+    if (state.vcn !== null) {
+        const vcnRemovalSuccess = await tryRemoveVCN(state.vcn);
+        if (vcnRemovalSuccess) {
+            state.routeTable = null;
+            state.vcn = null;
+            await updateState(knex, state);
+        }
+    }
+}
+
+/**
+ * Clears all (global) allocated resources of an executor type utilizing oracle-cloud
+ */
+async function clearState() {
+    await stateManipulationWrapper(impl_clearState);
+}
+
 module.exports = {
     createNewPoolParameters,
     registerPoolRemoval,
     getVcn,
     getGlobalStateForOCIExecType,
+    clearState,
     INSTANCE_SSH_PORT,
 };

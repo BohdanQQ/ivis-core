@@ -7,6 +7,7 @@ const router = require('../../lib/router-async').create();
 const { MachineTypeParams } = require('../../../shared/remote-run');
 const interoperableErrors = require('../../../shared/interoperable-errors');
 const { castToInteger } = require('../../lib/helpers');
+const { getGlobalExecTypeStateHandler } = require('../../lib/executor-type-management');
 
 router.postAsync('/job-exec-table', passport.loggedIn, async (req, res) => {
     return res.json(await jobExecs.listDTAjax(req.context, req.body));
@@ -56,6 +57,12 @@ router.postAsync('/job-executor-types', passport.loggedIn, async (req, res) => {
 
 router.getAsync('/job-executors/global/:type', passport.loggedIn, async (req, res) => {
     return res.json(await execTypes.getByType(req.context, req.params.type));
+});
+
+router.postAsync('/job-executors/global/:type/clean', passport.loggedIn, async (req, res) => {
+    const handler = await getGlobalExecTypeStateHandler(req.context, req.params.type);
+    await handler.clearGlobalState();
+    return res.json();
 });
 
 module.exports = router;
