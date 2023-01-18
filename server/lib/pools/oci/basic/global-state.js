@@ -232,18 +232,18 @@ async function impl_getVcn() {
             if (await isSavedVcnOk(state.vcn)) {
                 return state.vcn;
             } // otherwise reset the state vcn and recreate the vcn
-            await stateCommons.appendToLogByType(`OCI networking error: saved VCN ${state.vcn} incorrect/missing, trying to recover...\nEntire state: ${JSON.stringify(state)}`);
+            await stateCommons.appendToLogByType(`OCI networking error: saved VCN ${state.vcn} incorrect/missing, trying to recover...\nEntire state: ${JSON.stringify(state)}`.EXECUTOR_TYPE);
 
             await updateStateWithDiff({ vcn: null });
         } catch (err) {
             log.error(LOG_ID, 'saved VCN check failed', err);
-            await stateCommons.appendToLogByType(`OCI networking error: VCN check failed, trying to recover...\nEntire state: ${JSON.stringify(state)}\nError: ${err}`);
+            await stateCommons.appendToLogByType(`OCI networking error: VCN check failed, trying to recover...\nEntire state: ${JSON.stringify(state)}\nError: ${err}`, EXECUTOR_TYPE);
             await updateStateWithDiff({ vcn: null });
         }
     }
     const vcnCreationResult = await setupVcnIfNeeded();
     if (!vcnCreationResult.vcn || !vcnCreationResult.routeTable || !vcnCreationResult.gateway || !vcnCreationResult.securityList || vcnCreationResult.err) {
-        await stateCommons.appendToLogByType(`Unable to initialize OCI networking:\n\nParially correct state (with error): ${JSON.stringify(vcnCreationResult)}`);
+        await stateCommons.appendToLogByType(`Unable to initialize OCI networking:\n\nParially correct state (with error): ${JSON.stringify(vcnCreationResult)}`, EXECUTOR_TYPE);
         throw vcnCreationResult.err;
     }
     return vcnCreationResult.vcn;
