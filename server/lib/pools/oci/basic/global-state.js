@@ -175,47 +175,13 @@ async function tryRecoverOCINetwork(vcnId) {
     };
 }
 
-/** @returns {string} VCN OCID or null if not found */
-async function tryToDiscoverVCNId() {
-    for await (const vcn of
-        virtualNetworkClient.listAllVcns({
-            compartmentId: COMPARTMENT_ID,
-        })) {
-        if (vcn.displayName === RESERVED_VCN_NAME) {
-            log.verbose(LOG_ID, `found VCN by name (looking for: ${RESERVED_VCN_NAME})`);
-            if (vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminating || vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminated) {
-                log.verbose(LOG_ID, `VNC with id ${vcn.id} was skipped because it is terminat(ing/ed)`);
-                continue;
-            }
-            if (vcn.lifecycleState === core.models.Vcn.LifecycleState.Available) {
-                log.verbose(LOG_ID, `VNC with id ${vcn.id} is available`);
-                return vcn.id;
-            }
-
-            log.verbose(LOG_ID, `VNC with id ${vcn.id} is not terminating but also not available -> waiting for available status`);
-            const vcnResponse = await virtualNetworkWaiter.forVcn(
-                {
-                    vcnId: vcn.id,
-                },
-                core.models.Vcn.LifecycleState.Available,
-            );
-            log.verbose(LOG_ID, 'VCN status wait complete');
-            return vcnResponse.vcn.id;
-        }
-    }
-    return null;
-}
-
 /**
  * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success
  */
 async function setupVcnIfNeeded() {
-    const vcnId = await tryToDiscoverVCNId();
-
     const state = await assumesLocked_getGlobalStateForOCIExecType(knex);
-    const vcnExists = vcnId !== null;
     const networkingIsOk = state.vnc && state.routeTable && state.gateway && state.securityList;
-    if (vcnExists && networkingIsOk) {
+    if (networkingIsOk) {
         log.info(LOG_ID, `Already existing VCN + all network parameters are present in state: ${state}`);
         return {
             vcn: state.vcn, routeTable: state.routeTable, gateway: state.gateway, securityList: state.securityList, err: null,
@@ -223,7 +189,7 @@ async function setupVcnIfNeeded() {
     }
 
     log.info(LOG_ID, 'Starting VCN setup task');
-    const result = await (vcnExists ? tryRecoverOCINetwork(vcnId) : setupOCINetwork());
+    const result = await setupOCINetwork();
 
     const diff = { ...result };
     delete diff.err;
@@ -252,6 +218,7 @@ async function impl_getVcn() {
     const vcnCreationResult = await setupVcnIfNeeded();
     if (!vcnCreationResult.vcn || !vcnCreationResult.routeTable || !vcnCreationResult.gateway || !vcnCreationResult.securityList || vcnCreationResult.err) {
         await stateCommons.appendToLogByType(`Unable to initialize OCI networking:\n\nParially correct state (with error): ${JSON.stringify(vcnCreationResult)}`, EXECUTOR_TYPE);
+        await stateCommons.appendToLogByType(`You may need to clean the global state of this executor's type ( ${EXECUTOR_TYPE} )`, EXECUTOR_TYPE);
         throw vcnCreationResult.err;
     }
     return vcnCreationResult.vcn;
