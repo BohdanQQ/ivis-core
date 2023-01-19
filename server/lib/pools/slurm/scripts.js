@@ -225,7 +225,11 @@ cacheValidityGuard=\\$1; shift
 taskDirectory=\\\${1/#\\~/$HOME}; shift # expands the ~ to $HOME (mainly for the tar program)
 outputsPath=\\$1; shift
 runJobName=\\$1; shift
+
 idMappingPath=\\$1; shift
+stopLockPath="\\$idMappingPath".stopLock
+touch "\\$stopLockPath"
+
 pathToRunInput=\\$1; shift
 failEvType=\\$1; shift
 runId=\\$1; shift
@@ -289,6 +293,7 @@ ${execPaths.buildFailInformantScriptPath()} \\
 ${config.tasks.maxRunOutputBytes} "\\$buffTimeSecs" ${config.www.trustedUrlBase}/rest/remote/emit "\\$outEvType" "\\$failEvType" "\\$succEvType" \\
 ${config.www.trustedUrlBase}/rest/remote/status ${RemoteRunState.RUN_FAIL} ${RemoteRunState.SUCCESS} ${execPaths.certPath()} ${execPaths.certKeyPath()} "\\$runId" \\
 ${RemoteRunState.RUNNING} > "\\$idMappingPath"
+rm -f "\\$stopLockPath" # now the run's Job exists -> can be stopped
 `;
 }
 
@@ -391,10 +396,36 @@ function getRunStopScript() {
     return `#!/bin/bash
 #SBATCH --output /dev/null
 runIdtoSlurmIdMappingPath=\\$1; shift
+runId=\\$1; shift
+stopLockPath="\\$runIdtoSlurmIdMappingPath".stopLock
+user=\\$( whoami )
+
+#detect scheduled runbuild before stoplock is created -> scancel and exit
+runBuildState=\\$( squeue -o "%j %u %t" | grep "ivis-runbuild-\\$runId \\$user" | cut -f 3 -d " " )
+if [[ "\\$runBuildState" == "PD" ]]; then
+    runBuildId=\\$( squeue -o "%j %u %i" | grep "ivis-runbuild-\\$runId \\$user" | cut -f 3 -d " " )
+    if [[ "\\$runBuildId" != "" ]]; then
+        rm -f \\$stopLockPath
+        scancel \\$runBuildId
+        sleep 2
+        exit 0
+    fi
+fi
+
+# else : the code below
+sleep 1
+
+stopLockPath="\\$runIdtoSlurmIdMappingPath".stopLock
+while [ -f "\\$stopLockPath" ]
+do
+  sleep 1
+done
+
 slurmRunId=\\$( cat "\\$runIdtoSlurmIdMappingPath" || echo "null" )
 if [[ "\\$slurmRunId" != "null" ]]; then 
     scancel "\\$slurmRunId"
 fi
+sleep 2 # wait for real cancellation, removeRun is expected to run next to clean the run's data
 `;
 }
 
@@ -404,7 +435,7 @@ fi
  * @returns
  */
 function getRunStopInvocation(runPaths) {
-    return `${runPaths.execPaths.runStopScriptPath()} ${runPaths.idMappingPath()}`;
+    return `${runPaths.execPaths.runStopScriptPath()} ${runPaths.idMappingPath()} ${runPaths.runId}`;
 }
 
 function getRunStopScriptCreationCommands(execPaths) {

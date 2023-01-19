@@ -124,6 +124,7 @@ async function handleSlurmRun(executionMachine, runId, jobId, spec) {
 async function handleSlurmStop(executionMachine, runId, coreSystemEmission) {
     await slurm.stop(executionMachine, runId);
     stopRunLocally(runId, coreSystemEmission);
+    await handleSlurmRemove(executionMachine, runId);
 }
 
 async function handleSlurmRemove(executionMachine, runId) {
@@ -155,8 +156,8 @@ async function stopRunLocally(runId, coreSystemEmission) {
     await knex('job_runs').where('id', runId).update({
         status: RunStatus.FAILED,
         finished_at: new Date(),
+        output: 'INFO: Run Cancelled'
     });
-    await knex('job_runs').update({ output: knex.raw('CONCAT(\'INFO: Run Cancelled\n\nLog:\n\', `output`)') }).where('id', runId);
 }
 
 /**

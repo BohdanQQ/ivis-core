@@ -144,7 +144,8 @@ async function run(executor, archivePath, runConfig, type, subtype) {
         }
 
         await createRunInput(taskPaths, runPaths, runConfig, commandExecutor);
-        const command = `${sbatchWithPartition(executor)} ${scripts.getRunBuildInvocation(type, runPaths.runId, taskPaths, runPaths, archiveHash, toUseSubtype)}`;
+        // slurm stop depends on the job name we set here
+        const command = `${sbatchWithPartition(executor)} --job-name=ivis-runbuild-${runConfig.runId} ${scripts.getRunBuildInvocation(type, runPaths.runId, taskPaths, runPaths, archiveHash, toUseSubtype)}`;
         await commandExecutor.execute(command);
     });
 }
