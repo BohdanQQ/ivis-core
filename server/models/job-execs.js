@@ -164,6 +164,8 @@ async function create(context, executor) {
         await namespaceHelpers.validateEntity(tx, executor);
 
         const filteredEntity = filterObject(executor, allowedKeys);
+        const existingSameName = await tx(EXEC_TABLE).where('name', filteredEntity.name).first();
+        enforce(!existingSameName, `Executor with the same name already exists`);
         const jsonParams = filteredEntity.parameters;
         filteredEntity.parameters = JSON.stringify(filteredEntity.parameters);
         filteredEntity.state = JSON.stringify(ExecutorStateDefaults[executor.type]);
