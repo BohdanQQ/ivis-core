@@ -16,11 +16,11 @@ const LOG_ID = 'slurm-pool';
 function sshCredsFromExecutor(executor) {
     const params = executor.parameters;
     const creds = {
-        host: params.hostname, 
+        host: params.hostname,
         port: params.port,
-        username: params.username,        
+        username: params.username,
         password: params.password,
-    }
+    };
     return creds;
 }
 
@@ -192,7 +192,7 @@ const slurmStateToIvisState = {
     NF: RemoteRunState.RUN_FAIL,
 };
 
-async function getRemoteRunStateState(commandExecutor, runPaths) {
+async function getRemoteRunStateState(commandExecutor, runPaths, executor) {
     try {
         const lines = (await getCommandOutput(commandExecutor, `${srunWithPartition(executor)} ${scripts.getRunStatusInvocation(runPaths)}`)).split('\n');
         if (lines.length < 2) {
@@ -253,7 +253,7 @@ async function status(executor, runId) {
 
             return lines.join('\n');
         };
-        const stateResult = await getRemoteRunStateState(commandExecutor, runPaths);
+        const stateResult = await getRemoteRunStateState(commandExecutor, runPaths, executor);
         if (stateResult !== null) {
             const { slurmId, state, code } = stateResult;
             const stdErr = await fileContentsOrNull(runPaths.runStdErrPath(slurmId));
