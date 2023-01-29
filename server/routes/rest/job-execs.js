@@ -1,5 +1,3 @@
-'use strict';
-
 const passport = require('../../lib/passport');
 const jobExecs = require('../../models/job-execs');
 const execTypes = require('../../models/exec-type-global-state-commons');
@@ -9,9 +7,7 @@ const interoperableErrors = require('../../../shared/interoperable-errors');
 const { castToInteger } = require('../../lib/helpers');
 const { getGlobalExecTypeStateHandler } = require('../../lib/executor-type-management');
 
-router.postAsync('/job-exec-table', passport.loggedIn, async (req, res) => {
-    return res.json(await jobExecs.listDTAjax(req.context, req.body));
-});
+router.postAsync('/job-exec-table', passport.loggedIn, async (req, res) => res.json(await jobExecs.listDTAjax(req.context, req.body)));
 
 router.getAsync('/job-executor-params/:type', passport.loggedIn, async (req, res) => {
     if (!Object.keys(MachineTypeParams).includes(req.params.type)) {
@@ -20,24 +16,17 @@ router.getAsync('/job-executor-params/:type', passport.loggedIn, async (req, res
     return res.json(MachineTypeParams[req.params.type]);
 });
 
-
 router.getAsync('/job-executors/:execId', passport.loggedIn, async (req, res) => {
     const exec = await jobExecs.getById(req.context, castToInteger(req.params.execId));
     exec.hash = jobExecs.hash(exec);
     return res.json(exec);
 });
 
-router.deleteAsync('/job-executors/:execId', passport.loggedIn, async (req, res) => {
-    return res.json(await jobExecs.remove(req.context, castToInteger(req.params.execId)));
-});
+router.deleteAsync('/job-executors/:execId', passport.loggedIn, async (req, res) => res.json(await jobExecs.remove(req.context, castToInteger(req.params.execId))));
 
-router.deleteAsync('/job-executors/:execId/force', passport.loggedIn, async (req, res) => {
-    return res.json(await jobExecs.removeForced(req.context, castToInteger(req.params.execId)));
-});
+router.deleteAsync('/job-executors/:execId/force', passport.loggedIn, async (req, res) => res.json(await jobExecs.removeForced(req.context, castToInteger(req.params.execId))));
 
-router.postAsync('/job-executors', passport.loggedIn, passport.csrfProtection, async (req, res) => {
-    return res.json(await jobExecs.create(req.context, req.body));
-});
+router.postAsync('/job-executors', passport.loggedIn, passport.csrfProtection, async (req, res) => res.json(await jobExecs.create(req.context, req.body)));
 
 router.putAsync('/job-executors/:execId', passport.loggedIn, passport.csrfProtection, async (req, res) => {
     const exec = req.body;
@@ -47,17 +36,11 @@ router.putAsync('/job-executors/:execId', passport.loggedIn, passport.csrfProtec
     return res.json();
 });
 
-router.getAsync('/job-executors/:execId/certs', passport.loggedIn, async (req, res) => {
-    return res.json(await jobExecs.getAllCerts(req.context, castToInteger(req.params.execId)));
-});
+router.getAsync('/job-executors/:execId/certs', passport.loggedIn, async (req, res) => res.json(await jobExecs.getAllCerts(req.context, castToInteger(req.params.execId))));
 
-router.postAsync('/job-executor-types', passport.loggedIn, async (req, res) => {
-    return res.json(await execTypes.listTypesDTAjax(req.context, req.body));
-});
+router.postAsync('/job-executor-types', passport.loggedIn, async (req, res) => res.json(await execTypes.listTypesDTAjax(req.context, req.body)));
 
-router.getAsync('/job-executors/global/:type', passport.loggedIn, async (req, res) => {
-    return res.json(await execTypes.getByType(req.context, req.params.type));
-});
+router.getAsync('/job-executors/global/:type', passport.loggedIn, async (req, res) => res.json(await execTypes.getByType(req.context, req.params.type)));
 
 router.postAsync('/job-executors/global/:type/clean', passport.loggedIn, async (req, res) => {
     const handler = await getGlobalExecTypeStateHandler(req.context, req.params.type);

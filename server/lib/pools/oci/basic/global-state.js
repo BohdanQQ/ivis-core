@@ -164,18 +164,6 @@ async function setupOCINetwork() {
 }
 
 /**
- * @param {string} vcnId
- * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success
- */
-async function tryRecoverOCINetwork(vcnId) {
-    log.info(LOG_ID, 'trying to recover network configuration');
-    // TODO: try to recover from the global state, otherwise throw error and lock the setup?
-    return {
-        vcn: vcnId, routeTable: null, gateway: null, err: new Error('TODO, unimplemented'),
-    };
-}
-
-/**
  * @returns { {vcn: string, routeTable: string, gateway: string, securityList: string, err: Error}} OCIDs of the corresponding components, null for each component not created, err is null on success
  */
 async function setupVcnIfNeeded() {
@@ -243,11 +231,7 @@ async function assumesLocked_getGlobalStateForOCIExecType(tx) {
  * @returns { Promise<{vcn: string, routeTable: string, gateway: string, securityList: string}>} null if the global state is locked
  */
 async function getGlobalStateForOCIExecType(tx) {
-    try {
-        return await stateManipulationWrapper(async () => await assumesLocked_getGlobalStateForOCIExecType(tx));
-    } catch (err) {
-        throw err;
-    }
+    return await stateManipulationWrapper(async () => await assumesLocked_getGlobalStateForOCIExecType(tx));
 }
 
 function getStateForDb(state) {
@@ -328,8 +312,8 @@ async function storeIPsUsed(ipsUsed) {
 /**
  * Wraps a closure call with locking logic, returning whatever the closure returns
  * while ensuring consistent unlocking
- * @param {function} closure 
- * @returns 
+ * @param {function} closure
+ * @returns
  */
 async function stateManipulationWrapper(closure) {
     if (!virtualNetworkClient || !virtualNetworkWaiter || !COMPARTMENT_ID) {
@@ -396,7 +380,7 @@ async function impl_removeIpIndex(indexToRemove) {
  */
 async function registerPoolRemoval(poolParameters) {
     if (!poolParameters || !poolParameters.subnetMask) {
-        return;
+        throw new Error('Invalid arguments');
     }
     const { subnetMask } = poolParameters;
     const searchResult = /^11\.0\.(?<index>[0-9]{1,3})\.0\/24$/g.exec(subnetMask);
@@ -461,7 +445,7 @@ async function tryRemoveSecurityList(securityListId) {
 async function tryRemoveVCN(vcnId) {
     return await tryRemoveResource(async () => {
         if ((await getSubnetCount(vcnId)) > 0) {
-            throw new Error("VCN must be empty (without subnets) before removal");
+            throw new Error('VCN must be empty (without subnets) before removal');
         }
         await virtualNetworkClient.deleteVcn({ vcnId });
     }, vcnId, 'Virtual Cloud Network');
@@ -470,7 +454,7 @@ async function tryRemoveVCN(vcnId) {
 async function impl_clearState() {
     const executorCount = await stateCommons.getExecCountByType(EXECUTOR_TYPE);
     if (executorCount > 0) {
-        throw new Error("Cannot clear state of an executor type which has executors deployed");
+        throw new Error('Cannot clear state of an executor type which has executors deployed');
     }
 
     const state = await assumesLocked_getGlobalStateForOCIExecType(knex);
@@ -483,8 +467,7 @@ async function impl_clearState() {
                 await updateState(knex, state);
             }
         }
-    }
-    else if (state.routeTable !== null) {
+    } else if (state.routeTable !== null) {
         throw new Error(`Invalid partial state with route table but no VCN. Table ID: ${routeTable}`);
     }
 

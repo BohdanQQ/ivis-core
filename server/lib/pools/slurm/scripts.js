@@ -188,8 +188,8 @@ function getBuildFailInformantScriptCreationCommands(execPaths) {
 }
 
 /**
- * @param {string} paritionValue 
- * @returns {string} 
+ * @param {string} paritionValue
+ * @returns {string}
  */
 function getPartitionSwitchCommandPart(paritionValue) {
     if (!paritionValue) {

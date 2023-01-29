@@ -262,55 +262,6 @@ router.postAsync('/remote/emit', async (req, res) => {
     res.json({});
 });
 
-router.postAsync('/remote/runRequest', async (req, res) => {
-    const certSerial = certSerialPresenceCheck(req, res);
-    if (!certSerial) {
-        return;
-    }
-
-    if (!hasOwnProperties(req.body, ['type', 'payload']) || req.body.payload.jobId === undefined) {
-        res.status(400);
-        log.info(LOG_ID, 'Invalid request body (missing type, payload or payload.jobId): ', req.body);
-        res.json({});
-        return;
-    }
-
-    const { type, payload } = req.body;
-
-    // payload.jobId must always be present, see storeState and createRequest
-    const executor = await jobs.getJobExecutor(contextHelpers.getAdminContext(), payload.jobId);
-    if (!executor) {
-        res.status(400);
-        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} does not exist`);
-        res.json({});
-        return;
-    }
-
-    if (executor.cert_serial !== certSerial.toString()) {
-        res.status(403);
-        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to create a request on behalf of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
-        res.json({});
-        return;
-    }
-
-    let response = null;
-
-    switch (type) {
-    case RequestType.STORE_STATE:
-        response = await setStatusByResponse(async () => storeState(payload), res);
-        break;
-    case RequestType.CREATE_SIG:
-        response = await setStatusByResponse(async () => createRequest(payload), res);
-        break;
-    default:
-        log.error(LOG_ID, 'unknown request type');
-        res.status(400);
-        res.json({});
-        return;
-    }
-    res.json(response);
-});
-
 async function setStatusByResponse(requestHandler, res) {
     const response = await requestHandler();
     if (response.errStatus) {
@@ -361,5 +312,54 @@ async function createRequest(payload) {
     }
     return createResult;
 }
+
+router.postAsync('/remote/runRequest', async (req, res) => {
+    const certSerial = certSerialPresenceCheck(req, res);
+    if (!certSerial) {
+        return;
+    }
+
+    if (!hasOwnProperties(req.body, ['type', 'payload']) || req.body.payload.jobId === undefined) {
+        res.status(400);
+        log.info(LOG_ID, 'Invalid request body (missing type, payload or payload.jobId): ', req.body);
+        res.json({});
+        return;
+    }
+
+    const { type, payload } = req.body;
+
+    // payload.jobId must always be present, see storeState and createRequest
+    const executor = await jobs.getJobExecutor(contextHelpers.getAdminContext(), payload.jobId);
+    if (!executor) {
+        res.status(400);
+        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} does not exist`);
+        res.json({});
+        return;
+    }
+
+    if (executor.cert_serial !== certSerial.toString()) {
+        res.status(403);
+        log.info(LOG_ID, `Executor with certificate serial number ${certSerial.toString()} has attempted to create a request on behalf of a run managed by a different executor (id: ${executor.id}, certificate number: ${executor.cert_serial})`);
+        res.json({});
+        return;
+    }
+
+    let response = null;
+
+    switch (type) {
+    case RequestType.STORE_STATE:
+        response = await setStatusByResponse(async () => storeState(payload), res);
+        break;
+    case RequestType.CREATE_SIG:
+        response = await setStatusByResponse(async () => createRequest(payload), res);
+        break;
+    default:
+        log.error(LOG_ID, 'unknown request type');
+        res.status(400);
+        res.json({});
+        return;
+    }
+    res.json(response);
+});
 
 module.exports = router;

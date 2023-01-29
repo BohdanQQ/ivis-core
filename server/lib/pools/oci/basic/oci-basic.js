@@ -296,6 +296,11 @@ function convertParams(params) {
     return retval;
 }
 
+const EXEC_TABLE = 'job_executors';
+async function saveState(execId, stateToSave) {
+    await knex(EXEC_TABLE).update({ state: JSON.stringify(stateToSave) }).where('id', execId);
+}
+
 // OCI Homogenous pool:
 /**
  * @callback certificateGenerator
@@ -363,15 +368,11 @@ async function createOCIBasicPool(executorId, params, certificateGeneratorFuncti
     }
     await saveState(executorId, state);
 }
-const EXEC_TABLE = 'job_executors';
-async function saveState(execId, stateToSave) {
-    await knex(EXEC_TABLE).update({ state: JSON.stringify(stateToSave) }).where('id', execId);
-}
 
 async function shutdownSubnet(subnetId) {
     log.verbose(LOG_ID, 'Removing subnet with id', subnetId);
     const terminationRequest = {
-        subnetId: subnetId
+        subnetId,
     };
 
     await virtualNetworkClient.deleteSubnet(terminationRequest);
@@ -382,39 +383,39 @@ async function shutdownSubnet(subnetId) {
 async function getInstanceShutdownPromise(instanceId) {
     log.verbose(LOG_ID, 'Shutting down instance with id', instanceId);
     const terminationRequest = {
-        instanceId: instanceId,
-        preserveBootVolume: false
+        instanceId,
+        preserveBootVolume: false,
     };
     await computeClient.terminateInstance(terminationRequest);
 
     await computeWaiter.forInstance(
         {
-            instanceId: instanceId
+            instanceId,
         },
-        core.models.Instance.LifecycleState.Terminated
+        core.models.Instance.LifecycleState.Terminated,
     );
     log.verbose(LOG_ID, 'Shut down instance with id', instanceId);
 }
 
 async function shutdownInstances(instanceIds) {
-    const promises = instanceIds.map((id) => getInstanceShutdownPromise(id).then(() => { return { ok: 'ok' } }).catch(err => { return { error: err, id: id } }));
+    const promises = instanceIds.map((id) => getInstanceShutdownPromise(id).then(() => ({ ok: 'ok' })).catch((err) => ({ error: err, id })));
     const completedShutdownAttempts = await Promise.all(promises);
-    const errors = completedShutdownAttempts.filter(attempt => attempt.error).map(attempt => attempt.error);
+    const errors = completedShutdownAttempts.filter((attempt) => attempt.error).map((attempt) => attempt.error);
     if (errors.length > 0) {
-        const message = 'Some instances could not be shutdown with the following errors: '
-            + errors.map(({ error, id }, index) => `Error ${index}, instance ID affected: ${id}\n` + error.toString())
-                .concat('\n');
+        const message = `Some instances could not be shutdown with the following errors: ${
+            errors.map(({ error, id }, index) => `Error ${index}, instance ID affected: ${id}\n${error.toString()}`)
+                .concat('\n')}`;
         throw new Error(message);
     }
 }
 
 /**
- * Performs shutdown steps, propagates errors only when allowStepFailure is false. 
- * @param {any} executor 
- * @param {Boolean} allowStepFailure 
+ * Performs shutdown steps, propagates errors only when allowStepFailure is false.
+ * @param {any} executor
+ * @param {Boolean} allowStepFailure
  */
 async function generalShutdownFromState(executor, allowStepFailure = false) {
-    const state = executor.state;
+    const { state } = executor;
     if (!state) {
         throw new Error(`Could not get executor state (id: ${executor.id}`);
     }
@@ -423,8 +424,8 @@ async function generalShutdownFromState(executor, allowStepFailure = false) {
         try {
             await shutdownInstances(state.poolInstanceIds);
             // a delete-and-save pattern on successful execution of a shutdown step
-            // such as here allows to register those successful parts and not try to
-            // repeat them in future executions
+            // such as here allows to register those successful parts and avoids
+            // repeated executions if retry is attempted
             delete state.poolInstanceIds;
             await saveState(executor.id, state);
         } catch (err) {

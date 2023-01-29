@@ -23,12 +23,45 @@ const allowedKeysUpdate = new Set(['name', 'description', 'parameters', 'namespa
 const EXEC_TYPEID = 'jobExecutor';
 const EXEC_TABLE = 'job_executors';
 
+/**
+ * Return an executor with given id.
+ * @param context the calling user's context
+ * @param {number} id the primary key of the executor
+ * @returns {Promise<Object>}
+ */
+async function getById(context, id, includePermissions = true) {
+    return await knex.transaction(async (tx) => {
+        const exec = await tx(EXEC_TABLE).where('id', id).first();
+        await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'view');
+        exec.parameters = JSON.parse(exec.parameters);
+        exec.state = JSON.parse(exec.state);
+        if (includePermissions) {
+            exec.permissions = await shares.getPermissionsTx(tx, context, EXEC_TYPEID, id);
+        }
+        exec.execParams = MachineTypeParams[exec.type];
+        return exec;
+    });
+}
+
+async function updateExecStatus(execId, status, tx) {
+    if (!tx) {
+        tx = knex;
+    }
+    return await tx(EXEC_TABLE).update({ status }).where('id', execId);
+}
+
+async function appendToLogById(id, toAppend) {
+    return await knex.transaction(async (tx) => {
+        const { log: logContents } = await getById(getAdminContext(), id, false);
+        await tx(EXEC_TABLE).update({ log: `${logContents}\n${toAppend}` }).where('id', id);
+    });
+}
+
 async function failAllProvisioning() {
     const provisioningExecs = await knex(EXEC_TABLE).where('status', ExecutorStatus.PROVISIONING);
     await Promise.all(
-        provisioningExecs.map((exec) => 
-            appendToLogById(exec.id, 'Executor status update: status changed to fail because initialization/removal has not finished properly before IVIS server shutdown')
-            .then(() => updateExecStatus(exec.id, ExecutorStatus.FAIL)))
+        provisioningExecs.map((exec) => appendToLogById(exec.id, 'Executor status update: status changed to fail because initialization/removal has not finished properly before IVIS server shutdown')
+            .then(() => updateExecStatus(exec.id, ExecutorStatus.FAIL))),
     );
 }
 
@@ -74,13 +107,6 @@ async function generateCertificates(executor, ip, hostname, tx) {
 
     const certDecSerialString = BigInt(`0x${certHexSerial}`).toString();
     await tx(EXEC_TABLE).update({ cert_serial: certDecSerialString }).where('id', executor.id);
-}
-
-async function updateExecStatus(execId, status, tx) {
-    if (!tx) {
-        tx = knex;
-    }
-    return await tx(EXEC_TABLE).update({ status }).where('id', execId);
 }
 
 /**
@@ -134,7 +160,7 @@ const executorInitializer = {
                 if (filteredEntity.parameters.partition) {
                     const sanitized = filteredEntity.parameters.partition.split(' ')[0].trim();
                     filteredEntity.parameters.partition = sanitized;
-                    await knex(EXEC_TABLE).where('id', filteredEntity.id).update({parameters: JSON.stringify(filteredEntity.parameters)});
+                    await knex(EXEC_TABLE).where('id', filteredEntity.id).update({ parameters: JSON.stringify(filteredEntity.parameters) });
                 }
                 await slurm.createSlurmPool(filteredEntity, () => generateCertificates(filteredEntity, '10.0.0.1', filteredEntity.parameters.hostname, null));
             } catch (err) {
@@ -165,7 +191,7 @@ async function create(context, executor) {
 
         const filteredEntity = filterObject(executor, allowedKeys);
         const existingSameName = await tx(EXEC_TABLE).where('name', filteredEntity.name).first();
-        enforce(!existingSameName, `Executor with the same name already exists`);
+        enforce(!existingSameName, 'Executor with the same name already exists');
         const jsonParams = filteredEntity.parameters;
         filteredEntity.parameters = JSON.stringify(filteredEntity.parameters);
         filteredEntity.state = JSON.stringify(ExecutorStateDefaults[executor.type]);
@@ -197,26 +223,6 @@ async function create(context, executor) {
 
 function hash(entity) {
     return hasher.hash(filterObject(entity, allowedKeys));
-}
-
-/**
- * Return an executor with given id.
- * @param context the calling user's context
- * @param {number} id the primary key of the executor
- * @returns {Promise<Object>}
- */
-async function getById(context, id, includePermissions = true) {
-    return await knex.transaction(async (tx) => {
-        const exec = await tx(EXEC_TABLE).where('id', id).first();
-        await shares.enforceEntityPermissionTx(tx, context, EXEC_TYPEID, id, 'view');
-        exec.parameters = JSON.parse(exec.parameters);
-        exec.state = JSON.parse(exec.state);
-        if (includePermissions) {
-            exec.permissions = await shares.getPermissionsTx(tx, context, EXEC_TYPEID, id);
-        }
-        exec.execParams = MachineTypeParams[exec.type];
-        return exec;
-    });
 }
 
 /**
@@ -266,11 +272,11 @@ async function finalExecutorRemovalSteps(executorId) {
 }
 
 // wraps executor-type dependent operation around common steps
-// such as all executor-related run cancellation, certificate removal, ...  
+// such as all executor-related run cancellation, certificate removal, ...
 async function execRemovalWith(afterStopPromiseGenerator, executor, forced) {
     const runStopPromises = (await getRunsByExecutor(executor.id))
         .filter((run) => run.status !== RunStatus.FAILED && run.status !== RunStatus.SUCCESS)
-        .map((run) =>  jobHandler.scheduleRunStop(run.job, run.id));
+        .map((run) => jobHandler.scheduleRunStop(run.job, run.id));
     try {
         await Promise.all(runStopPromises);
         // waiting because scheduling stop != actually stopping
@@ -302,9 +308,8 @@ const executorDestructor = {
         execRemovalWith(async () => {
             if (isForced) {
                 return await killPoolForced(executor);
-            } else {
-                return await shutdownPool(executor);
             }
+            return await shutdownPool(executor);
         }, executor, isForced);
     },
     [MachineTypes.SLURM_POOL]: async (executor, tx, isForced) => {
@@ -353,15 +358,14 @@ async function removeForced(context, id) {
     const exec = await getById(context, id, false);
     // 2 possible solutions:
     // forceful removal does not care about executor state
-    // forceful removal works only on non-provisioning executors => in case something goes wrong 
-    // and the executor never switches to failed/success, the user would need the entire IVIS server 
+    // forceful removal works only on non-provisioning executors => in case something goes wrong
+    // and the executor never switches to failed/success, the user would need the entire IVIS server
     // to be restarted
     // thus keeping it this way (no check) for now
     await updateExecStatus(exec.id, ExecutorStatus.PROVISIONING);
     await shares.enforceEntityPermissionTx(knex, context, EXEC_TYPEID, id, 'delete');
     // no await because the form times out for too long requests
-    executorDestructor[exec.type](exec, knex, true).catch(() => null).then( () => 
-        remoteCert.tryRemoveCertificate(id))
+    executorDestructor[exec.type](exec, knex, true).catch(() => null).then(() => remoteCert.tryRemoveCertificate(id))
         .then(() => knex('jobs').where('executor_id', id).update({ executor_id: 1 }))
         .then(knex(EXEC_TABLE).where('id', id).del())
         .catch((err) => log.error(LOG_ID, 'forced removal error', err));
@@ -388,13 +392,6 @@ async function getAllCerts(context, id) {
     });
 }
 
-async function appendToLogById(id, toAppend) {
-    return await knex.transaction(async (tx) => {
-        const { log } = await getById(getAdminContext(), id, false);
-        await tx(EXEC_TABLE).update({ log: `${log}\n${toAppend}` }).where('id', id);
-    });
-}
-
 module.exports = {
-    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById, removeForced, failAllProvisioning
+    listDTAjax, hash, getById, create, updateWithConsistencyCheck, remove, getAllCerts, appendToLogById, removeForced, failAllProvisioning,
 };
