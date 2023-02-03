@@ -240,6 +240,9 @@ async function status(executor, runId) {
             }
         };
         const trimLastLine = (state, numCode, data) => {
+            if (data === null) {
+                return '';
+            }
             const lines = data.split('\n');
             const lastLine = lines.pop();
             if (lastLine === undefined) {
