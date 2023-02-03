@@ -8,20 +8,52 @@ const { ExecutorPaths, RunPaths, TaskPaths } = require('./paths');
 const JOB_ID_ENVVAR = 'SLURM_JOB_ID';
 // INIT script is expected to perform build output check and start the job execution if build succeeded
 const taskTypeRunScript = {
-// taskdir runInputPath buildOutputPath buildFailInformantPath runFailEmitTypeValue runId runBuildOutputPath jobArgs
+    // taskdir runInputPath buildOutputPath runFailEmitTypeValue runId runBuildOutputPath jobArgs
     [TaskType.PYTHON]: (sbatchOutputPath, runnerScriptPath, execPaths) => `#!/bin/bash
 #SBATCH --output ${sbatchOutputPath}
-if [[ \\$3 != "nocheck" && -f \\$3 ]]; then
-    # build failed because the build output is not cleaned up => call build fail informant
-    \\$4 \\$5 \\$6
+function commonCancel {
+    python3 -c "print(int(\\$( date +%s%N ) / 1000000))" > ${execPaths.runFinishedAtShellExpansion(JOB_ID_ENVVAR)}
+}
+
+function cancelRun {
+    commonCancel
+    exit 0
+}
+
+function cancelBySlurm {
+    commonCancel
+    # runfail informant because slurm cancelation is "unknown" to the IVIS server
+    ${execPaths.runFailInformantScriptPath()} "\\$1" "\\$2" "cancelled by slurm (probably preemptied)"
+    exit 0
+}
+
+trap cancelRun SIGINT
+
+taskDir=\\$1; shift
+runInputPath=\\$1; shift
+buildOutputPath=\\$1; shift
+runFailEmitTypeValue=\\$1; shift
+runId=\\$1; shift
+trap "cancelBySlurm \\$runFailEmitTypeValue \\$runId" SIGTERM
+
+runBuildOutputPath=\\$1; shift
+
+if [[ \\$buildOutputPath != "nocheck" && -f \\$buildOutputPath ]]; then
+    # build failed because the build output is not cleaned up => call run fail informant
+    ${execPaths.runFailInformantScriptPath()} "\\$runFailEmitTypeValue" "\\$runId" "remote build failed"
+    # the build may have been awaited by other jobs => not cleaned up
+    # this should be the only storage leak and should not be significant  
     exit
 fi
 # remove runbuild script output - comment this for debugging
-rm -f \\$7
-cd "\\$1"
+rm -f "\\$runBuildOutputPath"
+cd "\\$taskDir"
 . ./.venv/bin/activate
-cat "\\$2" | python3 ${runnerScriptPath} ./${PYTHON_JOB_FILE_NAME} "\\\${@:8}" > ${execPaths.runStdOutShellExpansion(JOB_ID_ENVVAR)} 2> ${execPaths.runStdErrShellExpansion(JOB_ID_ENVVAR)}
-echo \\$( python3 -c "print(int(\\$( date +%s%N ) / 1000000))" ) > ${execPaths.runFinishedAtShellExpansion(JOB_ID_ENVVAR)}
+( cat "\\$runInputPath" | python3 ${runnerScriptPath} ./${PYTHON_JOB_FILE_NAME} "\\\${@:1}" > ${execPaths.runStdOutShellExpansion(JOB_ID_ENVVAR)} 2> ${execPaths.runStdErrShellExpansion(JOB_ID_ENVVAR)} ) &
+# without the following two lines, slurm does not immediately cancel this job and the job hangs in the "CG" (completing) status
+child=$!
+wait "$child"
+python3 -c "print(int(\\$( date +%s%N ) / 1000000))" > ${execPaths.runFinishedAtShellExpansion(JOB_ID_ENVVAR)}
 `,
 };
 
@@ -34,28 +66,60 @@ const taskTypeInitScript = {
     /**
      * @param {string} sbatchOutputPath
      * @param {string} ivisPackageDirectory
+     * @param {ExecutorPaths} execPaths
      * @returns {string}
      */
-    [TaskType.PYTHON]: (sbatchOutputPath, ivisPackageDirectory) => `#!/bin/bash
+    [TaskType.PYTHON]: (sbatchOutputPath, ivisPackageDirectory, execPaths) => `#!/bin/bash
 #SBATCH --output ${sbatchOutputPath}
-mkdir -p "\\$1"
-cd "\\$1"
+function commonCancel {
+    # removes build lock - makes rebuild possible
+    # runs waiting for this build will fail with "build failed"
+    rm -f "\\$1"
+    # makes sure the build output exists and contains indicaion of failure
+    echo "bad build"
+}
+
+function cancelRun {
+    commonCancel "\\$1"
+    exit 0
+}
+
+function cancelBySlurm {
+    commonCancel "\\$3"
+    # runfail informant because slurm cancelation is "unknown" to the IVIS server
+    ${execPaths.runFailInformantScriptPath()} "\\$1" "\\$2" "build cancelled by slurm (probably preemptied)"
+    exit 0
+}
+
+taskPath=\\$1; shift
+failEvType=\\$1; shift
+runId=\\$1; shift
+buildLockPath=\\$1; shift
+
+
+trap "cancelRun \\$buildLockPath" SIGINT
+trap "cancelBySlurm \\$failEvType \\$runId \\$buildLockPath" SIGTERM
+
+mkdir -p "\\$taskPath"
+cd "\\$taskPath"
 python3 -m venv ./.venv
 . ./.venv/bin/activate
-pip install "\\\${@:2}"
+pip install "\\\${@:1}"
 pip install --no-index --find-links=${ivisPackageDirectory}/dist ivis
 deactivate
 echo "build complete"
+rm -f "\\$buildLockPath"
 `,
 };
 
 /**
  * @param {string} sbatchOutputPath sbatch-format output path
  * @param {string} ivisPackageDirectory path to the task helper package
+ * @param {ExecutorPaths} execPaths
  * @returns {string}
  */
-function getPythonTaskInitScript(sbatchOutputPath, ivisPackageDirectory) {
-    return taskTypeInitScript[TaskType.PYTHON](sbatchOutputPath, ivisPackageDirectory);
+function getPythonTaskInitScript(sbatchOutputPath, ivisPackageDirectory, execPaths) {
+    return taskTypeInitScript[TaskType.PYTHON](sbatchOutputPath, ivisPackageDirectory, execPaths);
 }
 
 /**
@@ -63,11 +127,24 @@ function getPythonTaskInitScript(sbatchOutputPath, ivisPackageDirectory) {
  */
 function getBuildOutputCleanScript() {
     return `#!/bin/bash
-grep -q "build complete$" "\\$1" && rm -f "\\$1"
-# create cache record
-echo "\\$2" > \\$3
-# remove build lock
-rm -f "\\$3".build
+function preventCancel {
+    # see below...
+    if [[ \\$1 = 1 ]]; then
+        echo "\\$3" > "\\$4"
+        rm -f "\\$2"
+    fi
+}
+
+trap "preventCancel 0 \\$1 \\$2 \\$3" SIGINT SIGTERM
+grep -q "build complete$" "\\$1"
+if [[ \\$? = 0 ]]; then
+    trap "preventCancel 1 \\$1 \\$2 \\$3" SIGINT SIGTERM
+    # create cache record
+    echo "\\$2" > "\\$3"
+    # remove build output - indicates build success for the pre-run checker
+    # can also be useful for diagnosing build failures
+    rm -f "\\$1"
+fi
 `;
 }
 
@@ -81,15 +158,15 @@ rm -f "\\$3".build
  * @param {string} failStatus fail state status id recognised by the remote status endpoint
  * @returns {string}
  */
-function buildFailInformantScript(keyPath, certPath, caCertPath, emitUrl, statusUrl, failStatus) {
+function runFailInformantScript(keyPath, certPath, caCertPath, emitUrl, statusUrl, failStatus) {
     return `#!/bin/bash
 #SBATCH --output /dev/null
 curl --cert ${certPath} --key ${keyPath} ${config.oci.ivisSSLCertVerifiableViaRootCAs ? '' : `--cacert ${caCertPath} `}\\
 --header "Content-Type: application/json" \\
---request POST --data '{"type":"'"\\$1"'","data":"remote build failed"}' ${emitUrl}
+--request POST --data '{"type":"'"\\$1"'","data":"'"\\$3"'"}' ${emitUrl}
 curl --cert ${certPath} --key ${keyPath} ${config.oci.ivisSSLCertVerifiableViaRootCAs ? '' : `--cacert ${caCertPath} `}\\
 --header "Content-Type: application/json" \\
---request POST --data '{"runId":'"\\$2"', "status": { "status": ${failStatus}, "finished_at":'\\$(python3 -c "print(int(\\$(date +%s%N) / 1000000))")' },"output":"", "errors":"remote build failed"}' ${statusUrl}
+--request POST --data '{"runId":'"\\$2"', "status": { "status": ${failStatus}, "finished_at":'\\$(python3 -c "print(int(\\$(date +%s%N) / 1000000))")' },"output":"'"\\$3"'"}' ${statusUrl}
 `;
 }
 
@@ -125,7 +202,7 @@ const scriptSetup = {
         },
         [ScriptTypes.INIT]: {
             pathGetter: (executorPaths) => `${executorPaths.remoteUtilsRepoDirectory()}/__python_init.sh`,
-            contentCreator: (executorPaths, homeDirectory) => getPythonTaskInitScript(executorPaths.buildOutputSbatchFormatPath(homeDirectory), executorPaths.ivisPythonPackageDirectory()),
+            contentCreator: (executorPaths, homeDirectory) => getPythonTaskInitScript(executorPaths.buildOutputSbatchFormatPath(homeDirectory), executorPaths.ivisPythonPackageDirectory(), executorPaths),
         },
     },
 };
@@ -176,8 +253,8 @@ function getBuildCleanScriptCreationCommands(execPaths) {
  * @param {ExecutorPaths} execPaths
  * @returns {[string]}
  */
-function getBuildFailInformantScriptCreationCommands(execPaths) {
-    return createScriptHelper(execPaths.buildFailInformantScriptPath(), buildFailInformantScript(
+function getRunFailInformantScriptCreationCommands(execPaths) {
+    return createScriptHelper(execPaths.runFailInformantScriptPath(), runFailInformantScript(
         execPaths.certKeyPath(),
         execPaths.certPath(),
         execPaths.caPath(),
@@ -215,7 +292,7 @@ function getRunBuildScript(execPaths, homedir, partition) {
 # inputs:
 # cacheRecordPath - path to the cache record to be checked
 # cacheValidityGuard - the hash of the task type, subtype and archive
-# arg1OfInitScript - seems like this is the task path
+# taskDirectory - seems like this is the task path
 # thisBuildOutputPath - expected build output path, CHANGED!!! no need to refer to a job
 # runJobName - name of the run job
 # idMappingPath - path to which the runJobId is supposed to be put
@@ -228,7 +305,6 @@ runJobName=\\$1; shift
 
 idMappingPath=\\$1; shift
 stopLockPath="\\$idMappingPath".stopLock
-touch "\\$stopLockPath"
 
 pathToRunInput=\\$1; shift
 failEvType=\\$1; shift
@@ -242,21 +318,57 @@ startScriptPath=\\$1; shift
 
 thisBuildOutputPath="nocheck"
 
+buildLockPath="\\$cacheRecordPath".build
+
+function commonCancel {
+    # if this run started a build... (thus created build lock)
+    if [[ \\$1 = 1 ]]; then
+        # remove build lock 
+        # ( makes other (re)builds possible )
+        rm -f "\\$2"
+    fi
+}
+
+function finish {
+    commonCancel \\$1 \\$2
+    # at this point the build either finished entirely (with build cleanup)
+    # and thus the build is "cached"
+    # or the build has not finished but can (and will) be repeated by any subsequent job run request
+
+    # all dependant tasks will fail due to failed build (notice commonCancel does not remove the thisBuildOutputPath)
+    exit 0
+}
+
+function cancelBySlurm {
+    commonCancel \\$3 \\$4
+    ${execPaths.runFailInformantScriptPath()} "\\$1" "\\$2" "cancelled by slurm (probably preemptied)"
+    exit 0
+}
+
+trap "finish 0 \\$buildLockPath" SIGINT
+trap "cancelBySlurm \\$failEvType \\$runId 0 \\$buildLockPath"  SIGTERM
+
 scheduleBuild () {
     srun${partitionSwitch} tar -xf "\\$taskDirectory"/____buildtaskarchive --directory="\\$taskDirectory"
     local buildId
-    buildId=\\$(sbatch${partitionSwitch} --parsable "\\$initScriptPath" "\\$taskDirectory" "\\$@")
+    buildId=\\$(sbatch${partitionSwitch} --parsable "\\$initScriptPath" "\\$taskDirectory" "\\$failEvType" "\\$runId" "\\$buildLockPath" "\\$@")
     thisBuildOutputPath="\\$outputsPath"/IVIS-build-"\\$buildId".out
     # cleanup script also sets cached flag and removes the build lock
     local buildFinishId
     buildFinishId=\\$( sbatch${partitionSwitch} --parsable --output=/dev/null --dependency=afterany:"\\$buildId" ${execPaths.buildOutputCleanScriptPath()} "\\$thisBuildOutputPath" "\\$cacheValidityGuard" "\\$cacheRecordPath" )
-    echo "\\$buildFinishId"
+    echo "\\$buildFinishId"^"\\$thisBuildOutputPath"
 }
 
 # cache check
 cacheCheckResult=\\$( { [ -f "\\$cacheRecordPath" ] && [ "\\$(grep -e ^"\\$cacheValidityGuard"\\\\$ "\\$cacheRecordPath")" = "\\$cacheValidityGuard" ]; } || echo notCached)
-buildLockPath="\\$cacheRecordPath".build
 
+# set stoplock here to ensure that a build finishes (ONLY FOR USER-INVOKED STOP)
+# scenario: Job A builds task T, job B (of task T) waits for this build... Now stop job A
+#   if the stopping of job A stops the build, job B will never run
+#   can be improved by somehow cancelling all dependent jobs in a cascading fashion...
+#   right now, the job B would detect the task is not built and will fail with "remote build failed"
+# for now the stoplock prevents the build from being cancelled by run stop (reasonable to assume a build will finish)
+touch "\\$stopLockPath"
 runDependency=""
 # all below expects (just like IVIS-core) that there won't be any concurrent rebuild requests for a different task implementation (code1 and code2)
 # and that a specific race condition won't happen (the cleanup script may remove the build lock when a job is inside the if and has not yet checked the build lock
@@ -267,6 +379,10 @@ if [[ "\\$cacheCheckResult" == "notCached" ]]; then
     # atomically create a "build lock" so that only one build is happening
     # https://stackoverflow.com/questions/13828544/atomic-create-file-if-not-exists-from-bash-script#comment81812776_13829090
     if (set -o noclobber;true>\\$buildLockPath) &>/dev/null; then 
+        # reset traps with updated "thisRunCreatedBuildLock" value (1)
+        # if the job is cancelled around here, the build lock remains in place... no idea how to fix that...
+        trap "finish 1 \\$buildLockPath" SIGINT
+        trap "cancelBySlurm \\$failEvType \\$runId 1 \\$buildLockPath"  SIGTERM
         # the above fails if another build has already started...
         # therefore if no builds have started, start building
         srun${partitionSwitch} cp "\\$taskDirectory"/____taskarchive "\\$taskDirectory"/____buildtaskarchive
@@ -275,20 +391,21 @@ if [[ "\\$cacheCheckResult" == "notCached" ]]; then
     # in case the above if has not run, we wait a moment for the srun to schedule the jobs and
     # fill the buildLockPath file with the job id every run is supposed to wait for
     sleep 2
-    runDependency=\\$(cat \\$buildLockPath || echo "")
+    runDependency=\\$(cat "\\$buildLockPath" || echo "")
 fi
 
 dependSwitch=""
 
 if [[ \\$runDependency != "" ]]; then
-    dependSwitch="--dependency=afterany:\\$runDependency"
+    # runDependency = [dependency Job ID]^[path to build output to be checked]
+    dependSwitch="--dependency=afterany:\\$( echo "\\$runDependency" | cut -f 1 -d "^" )"
+    thisBuildOutputPath=\\$( echo "\\$runDependency" | cut -f 2 -d "^" )
 fi
 
 # submit run job
 # when a run starts, it is ensured that the build is cached
 sbatch${partitionSwitch} --parsable \\$dependSwitch --job-name="\\$runJobName" "\\$startScriptPath" \\
 "\\$taskDirectory" "\\$pathToRunInput" "\\$thisBuildOutputPath" \\
-${execPaths.buildFailInformantScriptPath()} \\
 "\\$failEvType" "\\$runId" "${execPaths.outputsDirectoryWithHomeDir(homedir)}/runbuild-\\$${JOB_ID_ENVVAR}" \\
 ${config.tasks.maxRunOutputBytes} "\\$buffTimeSecs" ${config.www.trustedUrlBase}/rest/remote/emit "\\$outEvType" "\\$failEvType" "\\$succEvType" \\
 ${config.www.trustedUrlBase}/rest/remote/status ${RemoteRunState.RUN_FAIL} ${RemoteRunState.SUCCESS} ${execPaths.certPath()} ${execPaths.certKeyPath()} "\\$runId" \\
@@ -392,6 +509,9 @@ function getRunRemoveScriptCreationCommands(execPaths, partition) {
     return createScriptHelper(execPaths.runRemoveScriptPath(), getRunRemoveScript(execPaths, partition));
 }
 
+// terminates run with SIGINT signal (for the SLURM job)
+// note that "external" cancellation by SLURM and scancel is SIGTERM
+// (SLURM) cancellation of this script should be interpreted as an error...
 function getRunStopScript() {
     return `#!/bin/bash
 #SBATCH --output /dev/null
@@ -405,25 +525,25 @@ runBuildState=\\$( squeue -o "%j %u %t" | grep "ivis-runbuild-\\$runId \\$user" 
 if [[ "\\$runBuildState" == "PD" ]]; then
     runBuildId=\\$( squeue -o "%j %u %i" | grep "ivis-runbuild-\\$runId \\$user" | cut -f 3 -d " " )
     if [[ "\\$runBuildId" != "" ]]; then
-        rm -f \\$stopLockPath
-        scancel \\$runBuildId
+        rm -f "\\$stopLockPath"
+        scancel "\\$runBuildId" --full --signal=SIGINT
         sleep 2
         exit 0
     fi
 fi
 
-# else : the code below
+# else
 sleep 1
-
+# let build finish, let the job "start"
 stopLockPath="\\$runIdtoSlurmIdMappingPath".stopLock
 while [ -f "\\$stopLockPath" ]
 do
   sleep 1
 done
-
+# find the running job and cancel it
 slurmRunId=\\$( cat "\\$runIdtoSlurmIdMappingPath" || echo "null" )
 if [[ "\\$slurmRunId" != "null" ]]; then 
-    scancel "\\$slurmRunId"
+    scancel "\\$slurmRunId" --full --signal=SIGINT
 fi
 sleep 2 # wait for real cancellation, removeRun is expected to run next to clean the run's data
 `;
@@ -484,7 +604,7 @@ module.exports = {
     getScriptCreationCommands,
     getRunBuildScriptCreationCommands,
     getRunBuildInvocation,
-    getBuildFailInformantScriptCreationCommands,
+    getRunFailInformantScriptCreationCommands,
     getBuildCleanScriptCreationCommands,
     getRunRemoveScriptCreationCommands,
     getRunRemoveInvocation,

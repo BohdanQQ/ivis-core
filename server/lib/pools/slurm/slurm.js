@@ -316,12 +316,12 @@ function getPoolInitCommands(executor, certCA, certKey, cert, homedir, partition
      * - otherwise does nothing => RUN script checks whether the build output exists (if yes, build failed)
      */
     commands.push(...scripts.getBuildCleanScriptCreationCommands(execPaths));
-    /** BUILD FAIL INFORMANT script
-     * - will be run by the RUN script when task build failed
+    /** RUN FAIL INFORMANT script
+     * - will be run by the RUN script when task build failed or when a run is cancelled by SLURM itself
      * - informs IVIS-core of build/run failure, calls the emit and status endpoint with
      *   proper data so that IVIS-core may terminate and clear the run
      */
-    commands.push(...scripts.getBuildFailInformantScriptCreationCommands(execPaths));
+    commands.push(...scripts.getRunFailInformantScriptCreationCommands(execPaths));
     // RUNBUILD script is the mastermind of a single run
     // takes care of proper build caching/scheduling and running the INIT/RUN scripts with correct parameters
 

@@ -101,8 +101,8 @@ class ExecutorPaths {
         return `${this.remoteUtilsRepoDirectory()}/__build_clean.sh`;
     }
 
-    buildFailInformantScriptPath() {
-        return `${this.remoteUtilsRepoDirectory()}/__build_fail_informant.sh`;
+    runFailInformantScriptPath() {
+        return `${this.remoteUtilsRepoDirectory()}/__run_fail_informant.sh`;
     }
 
     runBuildScriptPath() {
