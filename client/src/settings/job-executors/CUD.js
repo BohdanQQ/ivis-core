@@ -70,6 +70,14 @@ export default class CUD extends Component {
     async fetchMachineTypeParams(type) {
         const result = await axios.get(getUrl(`rest/job-executor-params/${type}`));
 
+        // translates lables and help strings
+        // TODO: investigate why ParamTypes are not translating directly...
+        result.data.forEach((obj) => {
+            Object.keys(obj).filter((key) => key === "help" || key === "label")
+            .map((key) =>  obj[key] = this.props.t(obj[key]));
+        });
+
+
         this.updateFormValue(EPARAMS_KEY, result.data);
     }
 
