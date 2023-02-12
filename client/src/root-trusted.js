@@ -730,7 +730,7 @@ const getStructure = t => {
                                                 title: t('log'),
                                                 link: params => `/settings/job-executors/global/${params.type}/log`,
                                                 panelRender: props => 
-                                                    <Panel title={t('jeExecTypeLogOfType', {type: getTranslatedExecutorTypes(t)[resolved.execType.type]})}>
+                                                    <Panel title={t('jeExecTypeLogOfType', {type: getTranslatedExecutorTypes(t)[props.resolved.execType.type]})}>
                                                         <ExecutorLog log={props.resolved.execType.log} />
                                                     </Panel>
                                             },

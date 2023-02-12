@@ -16,6 +16,7 @@ import {
 import { getUrl } from "../../lib/urls";
 import { withComponentMixins } from "../../lib/decorator-helpers";
 import { withTranslation } from "../../lib/i18n";
+import { getTranslatedExecutorTypes } from "./executorTypes"
 
 
 @withComponentMixins([
@@ -39,7 +40,7 @@ export default class List extends Component {
     render() {
         const t = this.props.t;
         const columns = [
-            { data: 0, title: t('jeExecType') },
+            { data: 0, title: t('jeExecType'), render: (data) => getTranslatedExecutorTypes(t)[data]},
             { data: 3, title: t('namespace') },
             {
                 actions: data => {
