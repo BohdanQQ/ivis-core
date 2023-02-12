@@ -40,11 +40,20 @@ export default class List extends Component {
         const t = this.props.t;
         const columns = [
             { data: 0, title: t('Executor Type') },
-            { data: 1, title: t('Locked') },
             { data: 3, title: t('Namespace') },
             {
                 actions: data => {
                     const actions = [];
+                    const locked = data[1] === 1;
+                    let refreshTimeout;
+                    actions.push({
+                        label: <Icon icon={locked ? "spinner" : "check"} family="fas" title={t(locked ? "busy" : "ready")}/>
+                    });
+
+                    if (locked) {
+                        refreshTimeout = 2000;
+                    }
+
                     actions.push({
                         label: <Icon icon="broom" family="fas" title={t('Clear global state')} />,
                         action: (table) => this.clean(table, data[0])
@@ -55,7 +64,7 @@ export default class List extends Component {
                         link: `/settings/job-executors/global/${data[0]}/log`
                     });
 
-                    return { refreshTimeout: 1000, actions };
+                    return { refreshTimeout, actions };
                 }
             }
         ];
