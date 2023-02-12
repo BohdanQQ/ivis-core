@@ -27,7 +27,7 @@ export default class Log extends Component {
     render() {
         const t = this.props.t;
         let log = this.props.log;
-        log = (!log || log.length === 0) ? "Log is empty" : log;
+        log = (!log || log.length === 0) ? t('logEmpty') : log;
         return (
             <>
                 <div className={developStyles.integrationTabRunOutput}>

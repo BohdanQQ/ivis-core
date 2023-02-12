@@ -124,14 +124,14 @@ export default class CUD extends Component {
         const t = this.props.t;
 
         if (!state.getIn(['name', 'value'])) {
-            state.setIn(['name', 'error'], t('Name must not be empty'));
+            state.setIn(['name', 'error'], t('nameMustNotBeEmpty'));
         } else {
             state.setIn(['name', 'error'], null);
         }
 
         const type = state.getIn(['type', 'value']);
         if (!type || type === CUD.NOTHING_SELECTED_TYPE) {
-            state.setIn(['type', 'error'], t('Type must be selected'));
+            state.setIn(['type', 'error'], t('typeMustBeSelected'));
         } else {
             state.setIn(['type', 'error'], null);
         }
@@ -183,7 +183,7 @@ export default class CUD extends Component {
 
         const typeNow = this.getFormValue('type');
         if (typeNow && typeNow !== CUD.NOTHING_SELECTED_TYPE && !this.getFormValue(EPARAMS_KEY)) {
-            this.setFormStatusMessage('warning', t('Machine type parameters are not selected. Wait for them to get displayed and then fill them in.'));
+            this.setFormStatusMessage('warning', t('machineParametersAreNotSelectedWaitFor'));
             return;
         }
 
@@ -198,7 +198,7 @@ export default class CUD extends Component {
 
         try {
             this.disableForm();
-            this.setFormStatusMessage('info', t('Saving ...'));
+            this.setFormStatusMessage('info', t('saving'));
 
             const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
@@ -206,22 +206,22 @@ export default class CUD extends Component {
             if (submitResult) {
                 if (this.props.entity) {
                     if (submitAndLeave) {
-                        this.navigateToWithFlashMessage('/settings/job-executors', 'success', t('Job executor updated'));
+                        this.navigateToWithFlashMessage('/settings/job-executors', 'success', t('jeUpdated'));
                     } else {
                         await this.getFormValuesFromURL(`rest/job-executors/${this.props.entity.id}`);
                         this.enableForm();
-                        this.setFormStatusMessage('success', t('Job executor updated'));
+                        this.setFormStatusMessage('success', t('jeUpdated'));
                     }
                 } else {
                     if (submitAndLeave) {
-                        this.navigateToWithFlashMessage('/settings/job-executors', 'success', t('Job executor saved'));
+                        this.navigateToWithFlashMessage('/settings/job-executors', 'success', t('jeSaved'));
                     } else {
-                        this.navigateToWithFlashMessage(`/settings/job-executors/${submitResult}/edit`, 'success', t('Job executor saved'));
+                        this.navigateToWithFlashMessage(`/settings/job-executors/${submitResult}/edit`, 'success', t('jeSaved'));
                     }
                 }
             } else {
                 this.enableForm();
-                this.setFormStatusMessage('warning', t('There are errors in the form. Please fix them and submit again.'));
+                this.setFormStatusMessage('warning', t('thereAreErrorsInTheFormPleaseFixThemAnd'));
             }
         } catch (error) {
             throw error;
@@ -231,7 +231,7 @@ export default class CUD extends Component {
     static NOTHING_SELECTED_TYPE = 'NONE';
     static getExecTypeOptions(t) {
         let states = getChoosableExecutorTypes(t);
-        const typeOptions = [{key: CUD.NOTHING_SELECTED_TYPE, label: t('Please select')}];
+        const typeOptions = [{key: CUD.NOTHING_SELECTED_TYPE, label: t('pleaseSelect')}];
         for (let key in states) {
             if (states.hasOwnProperty(key)) {
                 typeOptions.push({key: key, label: states[key]})
@@ -251,9 +251,9 @@ export default class CUD extends Component {
         const configSpec = this.getFormValue(EPARAMS_KEY);
         const params = configSpec ? this.paramTypes.render(configSpec, this, isEdit) : null;
 
-        let title = 'Add Job Executor'
+        let title = t('jeAdd')
         if (isEdit) {
-            title = t('Job Executor Settings');
+            title = t('jeSettings');
         }
         return (
             <Panel title={title}>
@@ -281,16 +281,16 @@ export default class CUD extends Component {
                     deleteUrl={`rest/job-executors/${this.props.entity.id}`}
                     backUrl={`/settings/job-executors/${this.props.entity.id}/edit`}
                     successUrl="/settings/job-executors"
-                    deletingMsg={t('Deleting job executor ...')}
-                    deletedMsg={t('Deleting job executor in the background. You may monitor status and log for more information, executor will be removed automatically')}/>
+                    deletingMsg={t('jeDeletingExec')}
+                    deletedMsg={t('jeDeletingBackground')}/>
                 }
 
                 <Form stateOwner={this} onSubmitAsync={::this.submitHandler}>
-                    <InputField id="name" label={t('Name')} disabled={false}/>
-                    <TextArea id="description" label={t('Description')} help={t('HTML is allowed')}
+                    <InputField id="name" label={t('name')} disabled={false}/>
+                    <TextArea id="description" label={t('description')} help={t('htmlAllowed')}
                               disabled={false}/>
 
-                    <Dropdown id="type" label={t('Executor Type')} options={executorTypeOptions}  disabled={isEdit}/>
+                    <Dropdown id="type" label={t('jeExecType')} options={executorTypeOptions}  disabled={isEdit}/>
                     <NamespaceSelect/>
 
                     {configSpec ?
@@ -298,28 +298,28 @@ export default class CUD extends Component {
                         <Fieldset label={
                             <div>
                                 <Toolbar className={styles.fieldsetToolbar}>
-                                    <Button className="btn-primary" label={t('Import / Export')}
+                                    <Button className="btn-primary" label={t('importExport')}
                                             onClickAsync={async () => this.setState({importExportModalShown: true})}/>
                                 </Toolbar>
-                                <span>{t('Job executor parameters')}</span>
+                                <span>{t('jeExecParams')}</span>
                             </div>
                         }>
                             {params}
                         </Fieldset>
                         :
                         this.getFormValue("type") !== CUD.NOTHING_SELECTED_TYPE &&
-                        <div className="alert alert-info" role="alert">{t('Loading parameter config...')}</div>
+                        <div className="alert alert-info" role="alert">{t('loadingParamsCfg')}</div>
                     }
 
                     <ButtonRow>
-                        <Button type="submit" className="btn-primary" icon="check" label={t('Save')}/>
-                        <Button type="submit" className="btn-primary" icon="check" label={t('Save and leave')}
+                        <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')}
                                 onClickAsync={async () => await this.submitHandler(true)}/>
                         {canDelete &&
                         <LinkButton
                             className="btn-danger"
                             icon="trash-alt"
-                            label={t('Delete')}
+                            label={t('delete')}
                             to={`/settings/job-executors/${this.props.entity.id}/delete`}
                         />}
                     </ButtonRow>

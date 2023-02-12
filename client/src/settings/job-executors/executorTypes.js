@@ -1,11 +1,18 @@
 'use strict';
 import { MachineTypes } from "../../../../shared/remote-run";
 
-export function getChoosableExecutorTypes(t) {
+export function getTranslatedExecutorTypes(t) {
     return {
-        [MachineTypes.REMOTE_RUNNER_AGENT]: t('Remote Job Runner'),
-        [MachineTypes.OCI_BASIC]: t('Homogenous Oracle Cloud Infrastructure Pool'),
-        [MachineTypes.REMOTE_POOL]: t('Raw remote pool scheduler'),
-        [MachineTypes.SLURM_POOL]: t('SLURM-based pool')
+        [MachineTypes.LOCAL]: t('jeExecTypeNameLocal'),
+        [MachineTypes.REMOTE_RUNNER_AGENT]: t('jeExecTypeNameRJR'),
+        [MachineTypes.OCI_BASIC]: t('jeExecTypeNameOCIBasic'),
+        [MachineTypes.REMOTE_POOL]: t('jeExecTypeNameRPS'),
+        [MachineTypes.SLURM_POOL]: t('jeExecTypeNameSLURM')
     }
+}
+
+export function getChoosableExecutorTypes(t) {
+    const translatedTypes = getTranslatedExecutorTypes(t);
+    delete translatedTypes[MachineTypes.LOCAL];
+    return translatedTypes;
 }

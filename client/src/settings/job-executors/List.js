@@ -24,8 +24,8 @@ import {
 } from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 import {withTranslation} from "../../lib/i18n";
-import {getUrl} from "../../lib/urls";
 import { ExecutorStatus, MachineTypes } from '../../../../shared/remote-run';
+import { getTranslatedExecutorTypes } from "./executorTypes";
 
 @withComponentMixins([
     withTranslation,
@@ -64,10 +64,10 @@ export default class List extends Component {
         const t = this.props.t;
 
         const columns = [
-            {data: 1, title: t('Name')},
-            {data: 2, title: t('Description')},
-            {data: 3, title: t('Type')},
-            {data: 4, title: t('Namespace')},
+            {data: 1, title: t('name')},
+            {data: 2, title: t('description')},
+            {data: 3, title: t('type'), render: (data) => getTranslatedExecutorTypes(t)[data]},
+            {data: 4, title: t('namespace')},
             {
                 actions: data => {
                     const actions = [];
@@ -78,43 +78,43 @@ export default class List extends Component {
                     let refreshTimeout;
                     if (status === ExecutorStatus.PROVISIONING) {
                         actions.push({
-                            label: <Icon icon="spinner" family="fas" title={t('Provisioning')}/>
+                            label: <Icon icon="spinner" family="fas" title={t('provisioning')}/>
                         });
 
                         refreshTimeout = 2000;
                     } else {
                         actions.push({
-                                label: <Icon icon={status === ExecutorStatus.READY ? "check" : "times"} family="fas" title={t(status === ExecutorStatus.READY ? "ready" : "failure")}/>
+                                label: <Icon icon={status === ExecutorStatus.READY ? "check" : "times"} family="fas" title={t(status === ExecutorStatus.READY ? 'ready' : 'failed')}/>
                             });
                     }
 
                     if (type === MachineTypes.REMOTE_RUNNER_AGENT) {
                         actions.push({
-                            label: <Icon icon="certificate" title={t('Display certificate data')}/>,
+                            label: <Icon icon="certificate" title={t('displayCertificateData')}/>,
                             link: `/settings/job-executors/${data[0]}/certs`
                         });
                     }
 
                     actions.push({
-                        label: <Icon icon="file-alt" family="far" title={t('View executor log')} />,
+                        label: <Icon icon="file-alt" family="far" title={t('jeViewExecLogs')} />,
                         link: `/settings/job-executors/${data[0]}/log`
                     });
 
                     if (perms.includes('edit')) {
                         actions.push({
-                            label: <Icon icon="edit" title={t('Settings')}/>,
+                            label: <Icon icon="edit" title={t('settings')}/>,
                             link: `/settings/job-executors/${data[0]}/edit`
                         });
                     }
 
                     if (perms.includes('share')) {
                         actions.push({
-                            label: <Icon icon="share" title={t('Share')}/>,
+                            label: <Icon icon="share" title={t('share')}/>,
                             link: `/settings/job-executors/${data[0]}/share`
                         });
                     }
 
-                    tableAddDeleteButton(actions, this, perms, `rest/job-executors/${data[0]}`, data[1], t('Deleting job executor ...'), t('Deleting job executor in the background. You may monitor status and log for more information, executor will be removed automatically'));
+                    tableAddDeleteButton(actions, this, perms, `rest/job-executors/${data[0]}`, data[1], t('jeDeletingExec'), t('jeDeletingBackground'));
                     
                     if (perms.includes('delete')) {
                         tableAddRestActionButtonWithDefaultErrorHandler(actions, this, {
@@ -122,8 +122,8 @@ export default class List extends Component {
                             url: `rest/job-executors/${data[0]}/force`,
                         }, {
                             icon: 'exclamation-triangle',
-                            label: 'Force Delete',
-                        }, t('Forced Delete of a job executor'), t('This action is dangeous and could leak remote resources. Make sure you basolutely HAVE to do this.\n The only reason to execute this action is for example removal of a badly initialized/removed executor. Even then you have to make sure there are not any remote resources left to be destroyed/unallocated.\nAre you still ABSOLUTELY SURE you have to do this?'), t('Deleting job executor ...'), t('Job executor deleted'));
+                            label: t('forceDelete'),
+                        }, t('jeForceDeleteDesc'), t('jeForceDeleteAreYouAbsolutelySure'), t('jeDeletingExec'), t('jeDeleted'));
                     }
                     
 
@@ -135,17 +135,17 @@ export default class List extends Component {
 
         const dataUrl = "rest/job-exec-table";
         return (
-            <Panel title={t('Job Executors')}>
+            <Panel title={t('jeJobExecutors')}>
                 {tableRestActionDialogRender(this)}
                 {this.state.createPermitted &&
                     <Toolbar>
                         {
                             this.state.typesPermitted &&
                             <LinkButton to="/settings/job-executors/global" className="btn-primary" icon="wrench"
-                                    label={t('Global State Management')}/>
+                                    label={t('jeGlobalExecTypeMgmtShorterForButton')}/>
                         }
                         <LinkButton to="/settings/job-executors/create" className="btn-primary" icon="plus"
-                                label={t('Create Job Executor')}/>
+                                label={t('jeCreateExec')}/>
                     </Toolbar>
                 }
                 <Table ref={node => this.table = node} withHeader dataUrl={dataUrl} columns={columns}/>

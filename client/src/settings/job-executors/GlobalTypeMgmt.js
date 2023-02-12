@@ -39,8 +39,8 @@ export default class List extends Component {
     render() {
         const t = this.props.t;
         const columns = [
-            { data: 0, title: t('Executor Type') },
-            { data: 3, title: t('Namespace') },
+            { data: 0, title: t('jeExecType') },
+            { data: 3, title: t('namespace') },
             {
                 actions: data => {
                     const actions = [];
@@ -55,12 +55,12 @@ export default class List extends Component {
                     }
 
                     actions.push({
-                        label: <Icon icon="broom" family="fas" title={t('Clear global state')} />,
+                        label: <Icon icon="broom" family="fas" title={t('jeClearGlobalState')} />,
                         action: (table) => this.clean(table, data[0])
                     });
 
                     actions.push({
-                        label: <Icon icon="file-alt" family="fas" title={t('Show Log')} />,
+                        label: <Icon icon="file-alt" family="fas" title={t('showLog')} />,
                         link: `/settings/job-executors/global/${data[0]}/log`
                     });
 
@@ -71,7 +71,7 @@ export default class List extends Component {
 
 
         return (
-            <Panel title={t('Global Executor Type Management')}>
+            <Panel title={t('jeGlobalExecTypeMgmt')}>
                 <Table ref={node => this.table = node} withHeader dataUrl="rest/job-executor-types" columns={columns} refreshInterval={1000} />
             </Panel>
         );
