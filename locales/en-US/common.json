@@ -1021,5 +1021,11 @@
   "jeForceDeleteAreYouAbsolutelySure": "This action is dangeous and could leak remote resources. Make sure you basolutely HAVE to do this.\n The only reason to execute this action is for example removal of a badly initialized/removed executor. Even then you have to make sure there are not any remote resources left to be destroyed/unallocated.\nAre you still ABSOLUTELY SURE you have to do this?",
   "jeDeleted": "Job executor deleted",
   "jeCreateExec": "Create Job Executor",
-  "jeJobExecutors": "Job Executors"
+  "jeJobExecutors": "Job Executors",
+  "certificates": "Certificates",
+  "jeExecName": "Executor {{name}}",
+  "jeExecTypeType": "Executor Type {{type}}",
+  "jeExecTypeLogOfType": "Executor Type log of {{type}}",
+  "jeExecLogOfName": "Executor log of {{name}}",
+  "log": "Log"
 }

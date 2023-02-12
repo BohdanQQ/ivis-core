@@ -90,6 +90,7 @@ import {TranslationRoot} from "./lib/i18n";
 
 import {SignalSetKind} from "../../shared/signal-sets";
 import {TaskSource, isBuiltinSource} from "../../shared/tasks";
+import { getTranslatedExecutorTypes } from './settings/job-executors/executorTypes';
 
 emCommonDefaults.setDefaults(em);
 
@@ -711,25 +712,25 @@ const getStructure = t => {
                         }
                     },
                     'job-executors': {
-                        title: t('Job Executors'),
+                        title: t('jeJobExecutors'),
                         link: '/settings/job-executors',
                         navs: {
                             global: {
-                                title: t('Global State Management'),
+                                title: t('jeGlobalExecTypeMgmtShorterForButton'),
                                 link: `/settings/job-executors/global`,
                                 panelRender: props => <GlobalTypesList/>,
                                 children: {
                                     ':type': {
-                                        title: resolved => t('Executor Type "{{type}}"', {type: resolved.execType.type}),
+                                        title: resolved => t('jeExecTypeType', {type: getTranslatedExecutorTypes(t)[resolved.execType.type]}),
                                         resolve: {
                                             execType: params => `rest/job-executors/global/${params.type}`
                                         },
                                         navs: {
                                             log: {
-                                                title: t('Log'),
+                                                title: t('log'),
                                                 link: params => `/settings/job-executors/global/${params.type}/log`,
                                                 panelRender: props => 
-                                                    <Panel title={t('Executor Type log of ') + props.resolved.execType.type}>
+                                                    <Panel title={t('jeExecTypeLogOfType', {type: getTranslatedExecutorTypes(t)[resolved.execType.type]})}>
                                                         <ExecutorLog log={props.resolved.execType.log} />
                                                     </Panel>
                                             },
@@ -741,21 +742,21 @@ const getStructure = t => {
                         panelComponent: JobExecList,
                         children: {
                             ':execId([0-9]+)': {
-                                title: resolved => t('Executor "{{name}}"', {name: resolved.executor.name}),
+                                title: resolved => t('jeExecName', {name: resolved.executor.name}),
                                 resolve: {
                                     executor: params => `rest/job-executors/${params.execId}`
                                 },
                                 link: params => `/settings/job-executors/${params.execId}/edit`,
                                 navs: {
                                     ':action(edit|delete)': {
-                                        title: t('Settings'),
+                                        title: t('settings'),
                                         link: params => `/settings/job-executors/${params.execId}/edit`,
                                         visible: resolved => resolved.executor.permissions.includes('edit'),
                                         panelRender: props => <JobExecCUD action={props.match.params.action}
                                                                        entity={props.resolved.executor}/>
                                     },
                                     certs : {
-                                        title: t('Certificates'),
+                                        title: t('certificates'),
                                         link: params => `/settings/job-executors/${params.execId}/certs`,
                                         visible: resolved => resolved.executor.permissions.includes('viewCerts'),
                                         resolve: {
@@ -764,25 +765,25 @@ const getStructure = t => {
                                         panelRender: props => <CertDisplay entity={props.resolved.execCerts}/>
                                     },
                                     log: {
-                                        title: t('Log'),
+                                        title: t('log'),
                                         link: params => `/settings/job-executors/${params.execId}/log`,
                                         visible: resolved => resolved.executor.permissions.includes('view'),
                                         panelRender: props => 
-                                            <Panel title={t('Executor log of ') + props.resolved.executor.name}>
+                                            <Panel title={t('jeExecLogOfName', {name: props.resolved.executor.name})}>
                                                 <ExecutorLog log={props.resolved.executor.log} />
                                             </Panel>
                                     },
                                     share: {
-                                        title: t('Share'),
+                                        title: t('share'),
                                         link: params => `/settings/job-executors/${params.execId}/share`,
                                         visible: resolved => resolved.executor.permissions.includes('share'),
-                                        panelRender: props => <Share title={t('Share')} entity={props.resolved.executor}
+                                        panelRender: props => <Share title={t('share')} entity={props.resolved.executor}
                                                                      entityTypeId="jobExecutor"/>
                                     }
                                 }
                             },
                             create: {
-                                title: t('Create'),
+                                title: t('create'),
                                 panelRender: props => <JobExecCUD action="create"/>
                             }
                         }
