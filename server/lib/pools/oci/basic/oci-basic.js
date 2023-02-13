@@ -226,9 +226,6 @@ function getInstanceSetupCommands(subnetMask) {
         'sudo systemctl stop firewalld && sudo systemctl disable firewalld',
         'sudo yum install -y iptables-services && sudo systemctl enable iptables && sudo systemctl start iptables',
         'sudo systemctl enable docker.service && sudo systemctl start docker.service && sudo docker info', // sets up docker iptables configuration
-        'sudo curl -L https://github.com/docker/compose/releases/download/v2.12.2/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose',
-        'sudo chmod +x /usr/local/bin/docker-compose',
-        '/usr/local/bin/docker-compose  --version',
     ];
 }
 
