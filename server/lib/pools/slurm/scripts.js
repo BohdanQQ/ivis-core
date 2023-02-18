@@ -51,8 +51,8 @@ cd "\\$taskDir"
 . ./.venv/bin/activate
 ( cat "\\$runInputPath" | python3 ${runnerScriptPath} ./${PYTHON_JOB_FILE_NAME} "\\\${@:1}" > ${execPaths.runStdOutShellExpansion(JOB_ID_ENVVAR)} 2> ${execPaths.runStdErrShellExpansion(JOB_ID_ENVVAR)} ) &
 # without the following two lines, slurm does not immediately cancel this job and the job hangs in the "CG" (completing) status
-child=$!
-wait "$child"
+child=\\$!
+wait "\\$child"
 python3 -c "print(int(\\$( date +%s%N ) / 1000000))" > ${execPaths.runFinishedAtShellExpansion(JOB_ID_ENVVAR)}
 `,
 };
