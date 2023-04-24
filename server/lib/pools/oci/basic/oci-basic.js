@@ -400,7 +400,7 @@ async function getInstanceShutdownPromise(instanceId) {
 async function shutdownInstances(instanceIds) {
     const promises = instanceIds.map((id) => getInstanceShutdownPromise(id).then(() => ({ ok: 'ok' })).catch((err) => ({ error: err, id })));
     const completedShutdownAttempts = await Promise.all(promises);
-    const errors = completedShutdownAttempts.filter((attempt) => attempt.error).map((attempt) => attempt.error);
+    const errors = completedShutdownAttempts.filter((attempt) => attempt.error);
     if (errors.length > 0) {
         const message = `Some instances could not be shutdown with the following errors: ${
             errors.map(({ error, id }, index) => `Error ${index}, instance ID affected: ${id}\n${error.toString()}`)
