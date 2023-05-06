@@ -18,7 +18,7 @@ function getTaskArchivePath(taskId) {
  * @returns {Promise<void>} promise of the archiving process, rejects on error
  */
 async function archiveTaskCode(taskId) {
-    const archiveCommand = `tar --exclude=".git" --create --file=${getTaskArchivePath(taskId)} --directory=${taskHandler.getTaskBuildOutputDir(taskId)} .`;
+    const archiveCommand = `tar --exclude=".git" --create --file=${getTaskArchivePath(taskId)} --directory=${taskHandler.getTaskDevelopmentDir(taskId)} .`;
     log.silly(LOG_ID, `Archive Command: ${archiveCommand}`);
     return new Promise((resolve, reject) => {
         exec(archiveCommand)
