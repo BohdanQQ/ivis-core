@@ -21,6 +21,7 @@ const es = require('../lib/elasticsearch');
 const {TYPE_JOBS, INDEX_JOBS, STATE_FIELD} = require('../lib/task-handler').esConstants
 
 const {getFailEventType, getStopEventType, EventTypes} = require('../lib/task-events');
+const archiver = require('../lib/task-archiver');
 
 const LOG_ID = 'Task-handler';
 
@@ -662,9 +663,18 @@ async function handleJobDelete(workEntry) {
  * Callback for successful build.
  * @param id
  * @param warnings
+ * @param archiveFailCallback
  * @returns {Promise<void>}
  */
-async function onBuildSuccess(id, warnings) {
+async function onBuildSuccess(id, warnings, archiveFailCallback) {
+    try {
+        await archiver.archiveTaskCode(id);
+    } catch (error) {
+        log.error(error);
+        archiveFailCallback(id, null, [error.toString()]);
+        return;
+    }
+    
     const output = {};
     output.warnings = warnings ? warnings : [];
     output.errors = [];
@@ -711,7 +721,7 @@ async function handleBuild(workEntry) {
                     code: spec.code,
                     destDir: spec.destDir
                 },
-                (warnings) => onBuildSuccess(id, warnings),
+                (warnings) => onBuildSuccess(id, warnings, onBuildFail),
                 (warnings, errors) => onBuildFail(id, warnings, errors));
         } catch (err) {
             log.error(`${LOG_ID} build operation`, err);
@@ -759,7 +769,7 @@ async function handleInit(workEntry) {
                     code: spec.code,
                     destDir: spec.destDir
                 },
-                (warnings) => onBuildSuccess(id, warnings),
+                (warnings) => onBuildSuccess(id, warnings, onInitFail),
                 (warnings, errors) => onInitFail(id, warnings, errors));
         } catch (err) {
             log.error(`${LOG_ID} init operation`, err);

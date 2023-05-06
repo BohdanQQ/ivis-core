@@ -8,7 +8,6 @@ const ivisConfig = require('../../lib/config');
 const em = require('../../lib/extension-manager');
 const log = require('../../lib/log');
 const simpleGit = require('simple-git');
-const archiver = require('../../lib/task-archiver');
 
 // Directory name where virtual env is saved for task
 const ENV_NAME = 'env';
@@ -181,7 +180,6 @@ async function build(config, onSuccess, onFail) {
         }
 
         await initGitRepoIfRootIsRepo(devDir);
-        await archiver.archiveTaskCode(id);
         await onSuccess(null);
     } catch (error) {
         onFail(null, [error.toString()]);
@@ -235,7 +233,6 @@ async function init(config, onSuccess, onFail) {
         await fs.writeFileAsync(codeFilePath, code);
         await git.add(devDir)
         await git.commit('Init')
-        await archiver.archiveTaskCode(id);
         const virtEnv = spawn(
             getInitScript(subtype, envBuildDir),
             {
