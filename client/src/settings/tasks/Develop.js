@@ -121,7 +121,9 @@ export default class Develop extends Component {
 
 
         this.runEventSource.addEventListener("output", (e) => {
-            if (e.origin + '/' !== getUrl()) {
+            const portRE = new RegExp(/:[0-9]*\/$/gm);
+            const allowedUrls = [getUrl(), getUrl().replace(portRE, '') + '/'];
+            if (allowedUrls.indexOf(e.origin + '/') === -1) {
                 console.log(`Origin ${e.origin} not allowed; only events from ${getUrl()}`);
             } else {
                 const data = JSON.parse(e.data);
