@@ -281,7 +281,7 @@ async function storeState(payload) {
     const jobIdPresent = payload.jobId;
 
     if (!statePresent || !jobIdPresent) {
-        const nspecFields = jobRequests.createMisssingList([jobIdPresent, statePresent], ['jobId', `${esConstants.STATE_FIELD}`]);
+        const nspecFields = createMisssingList([jobIdPresent, statePresent], ['jobId', `${esConstants.STATE_FIELD}`]);
         return { error: `${nspecFields} not specified`, errStatus: 400 };
     }
 
