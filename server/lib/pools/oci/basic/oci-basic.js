@@ -7,8 +7,8 @@ const {
     getVcn,
 } = require('./global-state');
 const {
-    virtualNetworkClient, virtualNetworkWaiter, COMPARTMENT_ID, TENANCY_ID, identityClient,
-    computeClient, computeWaiter,
+    virtualNetworkClient, getVirtualNetworkWaiter, COMPARTMENT_ID, TENANCY_ID, identityClient,
+    computeClient, getComputeWaiter,
 } = require('./clients');
 const certs = require('../../../remote-certificates');
 const log = require('../../../log');
@@ -20,6 +20,7 @@ const config = require('../../../config');
 const LOG_ID = 'ocibasic-pool-creator';
 
 const POOL_PEER_OS = 'Oracle Linux';
+const POOL_PEER_OS_VER = '8';
 function getSubnetDisplayName(executorId) { return `IVIS-executor-${executorId}-subnet`; }
 function getInstanceDisplayName(executorId, instanceIndex) { return `IVIS-PEER-ex${executorId}-${instanceIndex}`; }
 
@@ -42,10 +43,10 @@ async function createSubnet(executorId, subnetMask, vcnId, securityListId) {
         subnetId: subnetResponse.subnet.id,
     };
 
-    await virtualNetworkWaiter.forSubnet(
+    await (getVirtualNetworkWaiter().forSubnet(
         subnetWaitRequest,
         core.models.Subnet.LifecycleState.Available,
-    );
+    ));
 
     return subnetResponse.subnet.id;
 }
@@ -62,6 +63,7 @@ async function getImageId(shapeName) {
         compartmentId: COMPARTMENT_ID,
         shape: shapeName,
         operatingSystem: POOL_PEER_OS,
+        operatingSystemVersion: POOL_PEER_OS_VER,
     };
 
     const response = await computeClient.listImages(request);
@@ -112,24 +114,25 @@ async function createInstance(executorId, instanceIndex, subnetId, params) {
 
     const instanceResponse = await computeClient.launchInstance(instanceRequest);
     log.info(LOG_ID, `Created instance ${instanceResponse.instance.id}`);
-
-    const instanceWaitRequest = {
-        instanceId: instanceResponse.instance.id,
-    };
-
-    log.info(LOG_ID, `Waiting for the instance ${instanceName} to be available`);
-    const getInstanceResponse = await computeWaiter.forInstance(
-        instanceWaitRequest,
-        core.models.Instance.LifecycleState.Running,
-    );
-    return getInstanceResponse.instance.id;
+    return instanceResponse.instance.id;
 }
 
 async function getInstanceVnic(instanceId) {
+    const instanceWaitRequest = {
+        instanceId: instanceId,
+    };
+
+    log.info(LOG_ID, `Waiting for the instance ${instanceId} to be available`);
+    await (getComputeWaiter().forInstance(
+        instanceWaitRequest,
+        core.models.Instance.LifecycleState.Running,
+    ));
+    
     const attachments = await computeClient.listVnicAttachments({
         compartmentId: COMPARTMENT_ID,
         instanceId,
     });
+    
     if (attachments.items.length === 0) {
         return null;
     }
@@ -388,12 +391,12 @@ async function getInstanceShutdownPromise(instanceId) {
     };
     await computeClient.terminateInstance(terminationRequest);
 
-    await computeWaiter.forInstance(
+    await (getComputeWaiter().forInstance(
         {
             instanceId,
         },
         core.models.Instance.LifecycleState.Terminated,
-    );
+    ));
     log.verbose(LOG_ID, 'Shut down instance with id', instanceId);
 }
 

@@ -331,7 +331,6 @@ function getPoolInitCommands(executor, certCA, certKey, cert, homedir, partition
     commands.push(...scripts.getRunRemoveScriptCreationCommands(execPaths, partition));
     commands.push(...scripts.getRunStopScriptCreationCommands(execPaths));
     commands.push(...scripts.getRunStatusScriptCreationCommands(execPaths));
-    commands.push(`chmod u+x ${execPaths.remoteUtilsRepoDirectory()}/install.sh`);
     // srun waits for the result
     commands.push(`${srunWithPartition(executor)} ${execPaths.remoteUtilsRepoDirectory()}/install.sh ${execPaths.remoteUtilsRepoDirectory()}`);
     return commands;

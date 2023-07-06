@@ -572,7 +572,7 @@ if state is None or state.get('aggs') is None:
     "indexed": False,
     "settings": {}
   })
-    signals.append({
+  signals.append({
     "cid": "avg",
     "name": "avg",
     "description": "avg",

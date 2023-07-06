@@ -2,7 +2,7 @@ const core = require('oci-core');
 const knex = require('../../../knex');
 const log = require('../../../log');
 const {
-    virtualNetworkClient, virtualNetworkWaiter, COMPARTMENT_ID,
+    virtualNetworkClient, getVirtualNetworkWaiter, COMPARTMENT_ID,
 } = require('./clients');
 const { MachineTypes } = require('../../../../../shared/remote-run');
 const { REQUIRED_ALLOWED_PORTS } = require('./rjr-setup');
@@ -20,10 +20,10 @@ async function isSavedVcnOk(vcnId) {
     if (response.vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminated || response.vcn.lifecycleState === core.models.Vcn.LifecycleState.Terminating) {
         return false;
     }
-    await virtualNetworkWaiter.forVcn(
+    await (getVirtualNetworkWaiter().forVcn(
         { vcnId },
         core.models.Vcn.LifecycleState.Available,
-    );
+    ));
     return true;
 }
 
@@ -43,10 +43,10 @@ async function createVcn() {
     const vcnWaitRequest = {
         vcnId: vcnResponse.vcn.id,
     };
-    vcnResponse = await virtualNetworkWaiter.forVcn(
+    vcnResponse = await (getVirtualNetworkWaiter().forVcn(
         vcnWaitRequest,
         core.models.Vcn.LifecycleState.Available,
-    );
+    ));
 
     return vcnResponse.vcn.id;
 }
@@ -58,9 +58,9 @@ async function createGateway(vcnId) {
         { createInternetGatewayDetails: gwDetails },
     );
     log.info(LOG_ID, `created gateway: ${createGatewayResponse.internetGateway.id}`);
-    const gatewayResponse = await virtualNetworkWaiter.forInternetGateway({
+    const gatewayResponse = await (getVirtualNetworkWaiter().forInternetGateway({
         igId: createGatewayResponse.internetGateway.id,
-    }, core.models.InternetGateway.LifecycleState.Available);
+    }, core.models.InternetGateway.LifecycleState.Available));
 
     return gatewayResponse.internetGateway.id;
 }
@@ -129,10 +129,10 @@ async function createSecurityList(vcnId) {
         },
     });
     log.info(LOG_ID, 'created security list ', listResponse.securityList.id);
-    const list = await virtualNetworkWaiter.forSecurityList(
+    const list = await (getVirtualNetworkWaiter().forSecurityList(
         { securityListId: listResponse.securityList.id },
         core.models.SecurityList.LifecycleState.Available,
-    );
+    ));
     return list.securityList.id;
 }
 
@@ -316,7 +316,7 @@ async function storeIPsUsed(ipsUsed) {
  * @returns
  */
 async function stateManipulationWrapper(closure) {
-    if (!virtualNetworkClient || !virtualNetworkWaiter || !COMPARTMENT_ID) {
+    if (!virtualNetworkClient || !COMPARTMENT_ID) {
         throw new Error('Oracle cloud infrastructure is misconfigured and cannot be used!');
     }
 

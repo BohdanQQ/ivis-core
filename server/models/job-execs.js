@@ -90,9 +90,10 @@ async function listDTAjax(context, params) {
 }
 
 async function logErrorToExecutor(executorId, precedingMessage, error) {
-    const errMsg = `${precedingMessage}, error:\n${error.toString()}`;
+    const errStr = JSON.stringify(error, ["message", "arguments", "type", "name"]);
+    const errMsg = `${precedingMessage}, error:\n${errStr}`;
     log.error(LOG_ID, errMsg);
-    log.error(LOG_ID, error.stack);
+    log.error(LOG_ID, errStr);
     await appendToLogById(executorId, errMsg);
 }
 
@@ -156,7 +157,8 @@ const executorInitializer = {
         (async () => {
             let error = null;
             try {
-                log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
+                // leaks passwords!!!
+                //log.verbose(LOG_ID, 'Pool params:', filteredEntity.parameters);
                 if (filteredEntity.parameters.partition) {
                     const sanitized = filteredEntity.parameters.partition.split(' ')[0].trim();
                     filteredEntity.parameters.partition = sanitized;

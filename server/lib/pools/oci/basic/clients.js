@@ -7,9 +7,9 @@ const config = require('../../../config');
 if (!config.oci.credsPath || !config.oci.compartmentId || !config.oci.tenancyId) {
     module.exports = {
         computeClient: null,
-        computeWaiter: null,
+        getComputeWaiter: null,
         virtualNetworkClient: null,
-        virtualNetworkWaiter: null,
+        getVirtualNetworkWaiter: null,
         identityClient: null,
         COMPARTMENT_ID: config.oci.compartmentId,
         TENANCY_ID: config.oci.tenancyId,
@@ -20,10 +20,6 @@ if (!config.oci.credsPath || !config.oci.compartmentId || !config.oci.tenancyId)
     const authenticationDetailsProvider = new common.ConfigFileAuthenticationDetailsProvider(OCI_CREDS_FILE_PATH);
     const waiterFailAfterSeconds = 5 * 60;
     const delayMaxSeconds = 30;
-    const waiterConfiguration = {
-        terminationStrategy: new common.MaxTimeTerminationStrategy(waiterFailAfterSeconds),
-        delayStrategy: new common.ExponentialBackoffDelayStrategy(delayMaxSeconds),
-    };
 
     const computeClient = new core.ComputeClient({
         authenticationDetailsProvider,
@@ -33,16 +29,30 @@ if (!config.oci.credsPath || !config.oci.compartmentId || !config.oci.tenancyId)
         authenticationDetailsProvider,
     });
 
-    const computeWaiter = computeClient.createWaiters(workRequestClient, waiterConfiguration);
+    const getComputeWaiter = () => {
+        const waiterConfiguration = {
+            terminationStrategy: new common.MaxTimeTerminationStrategy(waiterFailAfterSeconds),
+            delayStrategy: new common.ExponentialBackoffDelayStrategy(delayMaxSeconds),
+        };
+
+        return computeClient.createWaiters(workRequestClient, waiterConfiguration);
+    } 
 
     const virtualNetworkClient = new core.VirtualNetworkClient({
         authenticationDetailsProvider,
     });
 
-    const virtualNetworkWaiter = virtualNetworkClient.createWaiters(
-        workRequestClient,
-        waiterConfiguration,
-    );
+    const getVirtualNetworkWaiter = () => {
+        const waiterConfiguration = {
+            terminationStrategy: new common.MaxTimeTerminationStrategy(waiterFailAfterSeconds),
+            delayStrategy: new common.ExponentialBackoffDelayStrategy(delayMaxSeconds),
+        };
+
+        return virtualNetworkClient.createWaiters(
+            workRequestClient,
+            waiterConfiguration,
+        );
+    };
 
     const identityClient = new identity.IdentityClient({
         authenticationDetailsProvider,
@@ -50,11 +60,12 @@ if (!config.oci.credsPath || !config.oci.compartmentId || !config.oci.tenancyId)
 
     module.exports = {
         computeClient,
-        computeWaiter,
+        getComputeWaiter,
         virtualNetworkClient,
-        virtualNetworkWaiter,
+        getVirtualNetworkWaiter,
         identityClient,
         COMPARTMENT_ID: config.oci.compartmentId,
         TENANCY_ID: config.oci.tenancyId,
+        
     };
 }
