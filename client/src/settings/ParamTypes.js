@@ -135,7 +135,7 @@ export default class ParamTypes {
                 }
             },
             render: (self, prefix, spec, disabled) => <ACEEditor key={spec.id} id={this.getParamFormId(prefix, spec.id)}
-                                                                 label={spec.label} help={spec.help} mode={mode}
+                                                                 label={t(spec.label)} help={t(spec.help)} mode={mode}
                                                                  height={spec.height} readOnly={disabled}/>,
             upcast: upcastString
         });
@@ -156,7 +156,7 @@ export default class ParamTypes {
             validate: (prefix, spec, state) => {
             },
             render: (self, prefix, spec, disabled) => <CheckBox key={spec.id} id={this.getParamFormId(prefix, spec.id)}
-                                                                label={spec.label} text="" help={spec.help}
+                                                                label={t(spec.label)} text="" help={t(spec.help)}
                                                                 disabled={disabled}/>,
             upcast: (spec, value) => ensureBoolean(spec, value)
         };
@@ -175,7 +175,7 @@ export default class ParamTypes {
             },
             render: (self, prefix, spec, disabled) => <InputField key={spec.id}
                                                                   id={this.getParamFormId(prefix, spec.id)}
-                                                                  label={spec.label} help={spec.help}
+                                                                  label={t(spec.label)} help={t(spec.label)}
                                                                   disabled={disabled}/>,
             upcast: upcastString
         };
@@ -195,7 +195,7 @@ export default class ParamTypes {
             render: (self, prefix, spec, disabled) => <InputField key={spec.id}
                                                                   id={this.getParamFormId(prefix, spec.id)}
                                                                   type='password'
-                                                                  label={spec.label} help={spec.help}
+                                                                  label={t(spec.label)} help={t(spec.help)}
                                                                   disabled={disabled}/>,
             upcast: upcastString
         };
@@ -214,7 +214,7 @@ export default class ParamTypes {
             },
             render: (self, prefix, spec, disabled) => <InputField key={spec.id}
                                                                   id={this.getParamFormId(prefix, spec.id)}
-                                                                  label={spec.label} help={spec.help}
+                                                                  label={t(spec.label)} help={t(spec.help)}
                                                                   disabled={disabled}
             />,
             upcast: (spec, value) => Number.parseInt(value)
@@ -235,7 +235,7 @@ export default class ParamTypes {
             },
             render: (self, prefix, spec, disabled) => <InputField key={spec.id}
                                                                   id={this.getParamFormId(prefix, spec.id)}
-                                                                  label={spec.label} help={spec.help}
+                                                                  label={t(spec.label)} help={t(spec.help)}
                                                                   disabled={disabled}/>,
             upcast: (spec, value) => Number.parseFloat(value)
         };
@@ -248,7 +248,7 @@ export default class ParamTypes {
             validate: (prefix, spec, state) => {
             },
             render: (self, prefix, spec, disabled) => <TextArea key={spec.id} id={this.getParamFormId(prefix, spec.id)}
-                                                                label={spec.label} help={spec.help}
+                                                                label={t(spec.label)} help={t(spec.help)}
                                                                 disabled={disabled}/>,
             upcast: upcastString
         };
@@ -275,7 +275,7 @@ export default class ParamTypes {
                 }
             },
             render: (self, prefix, spec, disabled) => <Dropdown key={spec.id} id={this.getParamFormId(prefix, spec.id)}
-                                                                label={spec.label} help={spec.help}
+                                                                label={t(spec.label)} help={t(spec.help)}
                                                                 options={spec.options} disabled={disabled}/>,
             upcast: (spec, value) => ensureOption(spec.options, value)
         };
@@ -291,7 +291,7 @@ export default class ParamTypes {
             },
             render: (self, prefix, spec, disabled) => <ColorPicker key={spec.id}
                                                                    id={this.getParamFormId(prefix, spec.id)}
-                                                                   label={spec.label} help={spec.help}
+                                                                   label={t(spec.label)} help={t(spec.help)}
                                                                    disabled={disabled}
             />,
             upcast: (spec, value) => {
@@ -318,8 +318,8 @@ export default class ParamTypes {
                 return <TableSelect
                     key={spec.id}
                     id={this.getParamFormId(prefix, spec.id)}
-                    label={spec.label}
-                    help={spec.help}
+                    label={t(spec.label)}
+                    help={t(spec.help)}
                     columns={signalColumns}
                     withHeader
                     dropdown
@@ -398,8 +398,8 @@ export default class ParamTypes {
                     return <TableSelect
                         key={spec.id}
                         id={this.getParamFormId(prefix, spec.id)}
-                        label={spec.label}
-                        help={spec.help}
+                        label={t(spec.label)}
+                        help={t(spec.help)}
                         columns={signalColumns}
                         withHeader
                         dropdown
@@ -412,7 +412,7 @@ export default class ParamTypes {
                     />;
                 } else {
                     return (
-                        <StaticField key={spec.id} id={spec.id} label={spec.label}>
+                        <StaticField key={spec.id} id={spec.id} label={t(spec.label)}>
                             {t('Select signal set to see the list of signals.')}
                         </StaticField>
                     );
@@ -440,8 +440,8 @@ export default class ParamTypes {
                 return <TableSelect
                     key={spec.id}
                     id={this.getParamFormId(prefix, spec.id)}
-                    label={spec.label}
-                    help={spec.help}
+                    label={t(spec.label)}
+                    help={t(spec.help)}
                     columns={signalColumns}
                     withHeader
                     dropdown
@@ -517,8 +517,8 @@ export default class ParamTypes {
                     return <TableSelect
                         key={spec.id}
                         id={this.getParamFormId(prefix, spec.id)}
-                        label={spec.label}
-                        help={spec.help}
+                        label={t(spec.label)}
+                        help={t(spec.help)}
                         columns={fileColumns}
                         withHeader
                         dropdown
@@ -529,7 +529,7 @@ export default class ParamTypes {
                     />;
                 } else {
                     return (
-                        <StaticField key={spec.id} id={spec.id} label={spec.label}>
+                        <StaticField key={spec.id} id={spec.id} label={t(spec.label)}>
                             {t('Select entity to see the list of files.')}
                         </StaticField>
                     );
@@ -849,7 +849,7 @@ export default class ParamTypes {
                     }
                 }
 
-                return <Fieldset key={spec.id} id={formId} label={spec.label} help={spec.help}
+                return <Fieldset key={spec.id} id={formId} label={t(spec.label)} help={t(spec.help)}
                                  flat={spec.flat}>{fields}</Fieldset>;
             },
             upcast: (spec, value) => {
