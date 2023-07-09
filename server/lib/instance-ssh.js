@@ -239,7 +239,7 @@ class SSHConnection {
         if (typeof command !== 'string') {
             throw new Error(`Cannot execute ${typeof command} as a command (epxected string)`);
         }
-        log.verbose(LOG_ID, `$> ${command}`);
+        log.silly(LOG_ID, `$> ${command}`);
         return this.#executeImpl(command);
     }
 
