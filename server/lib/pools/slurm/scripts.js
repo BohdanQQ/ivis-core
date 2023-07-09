@@ -213,7 +213,11 @@ Object.freeze(scriptSetup);
  * @param {string} contents
  */
 function createFileCommand(path, contents) {
-    return `cat > ${path} << HEREDOC_EOF\n${contents}\nHEREDOC_EOF`;
+    let HEREDOC = 'HEREDOC_EOF';
+    while (contents.indexOf(HEREDOC) != -1) {
+        HEREDOC += 'F';
+    }
+    return `cat > ${path} << ${HEREDOC}\n${contents}\n${HEREDOC}`;
 }
 
 /**
