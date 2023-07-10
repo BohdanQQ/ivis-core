@@ -177,6 +177,13 @@ async function removeRun(executor, runId) {
     });
 }
 
+async function removeTask(executor, taskId) {
+    const taskPaths = new TaskPaths(new ExecutorPaths(executor.id), taskId);
+    await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
+        await commandExecutor.execute(`${srunWithPartition(executor)} bash -c \"rm -r ${taskPaths.taskDirectory()} || true\"`);
+    });
+}
+
 const slurmStateToIvisState = {
     CD: RemoteRunState.SUCCESS,
     CG: RemoteRunState.SUCCESS,
@@ -376,5 +383,5 @@ async function removePool(executor) {
 }
 
 module.exports = {
-    status, run, stop, removeRun, createSlurmPool, removePool,
+    status, run, stop, removeRun, createSlurmPool, removePool, removeTask
 };

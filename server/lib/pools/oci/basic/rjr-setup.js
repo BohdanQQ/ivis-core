@@ -67,9 +67,7 @@ services:
     ports:
         - 127.0.0.1:${RJR_INTERNAL_PORT}:${RJR_INTERNAL_PORT}
     volumes:
-    # database directory
       - ./data:/opt/ivis-remote/data
-    # job files, builds
       - ./files:/opt/ivis-remote/files
       - ./config/default.yml:/opt/ivis-remote/config/default.yml
       # - ./cert:/opt/ivis-remote/cert # not used
