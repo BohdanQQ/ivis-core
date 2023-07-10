@@ -180,6 +180,7 @@ async function removeRun(executor, runId) {
 async function removeTask(executor, taskId) {
     const taskPaths = new TaskPaths(new ExecutorPaths(executor.id), taskId);
     await ssh.sshWrapper(sshCredsFromExecutor(executor), async (commandExecutor) => {
+        await commandExecutor.execute(`${srunWithPartition(executor)} bash -c \"rm -r ${taskPaths.cacheRecordPath()} || true\"`);
         await commandExecutor.execute(`${srunWithPartition(executor)} bash -c \"rm -r ${taskPaths.taskDirectory()} || true\"`);
     });
 }
