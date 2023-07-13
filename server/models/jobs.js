@@ -15,7 +15,8 @@ const allowedKeys = new Set(['name', 'description', 'task', 'params', 'state', '
 const allowedKeysUpdate = new Set(['name', 'description', 'params', 'state', 'trigger', 'min_gap', 'delay', 'namespace', 'executor_id']);
 const {getVirtualNamespaceId} = require('../../shared/namespaces');
 const columns = ['jobs.id', 'jobs.name', 'jobs.description', 'jobs.task', 'jobs.created', 'jobs.state', 'jobs.trigger', 'jobs.min_gap', 'jobs.delay', 'namespaces.name', 'job_executors.name', 'tasks.name', 'tasks.source'];
-const { MachineTypeParams } = require('../../shared/remote-run');
+const { getRemoteHandler } = require('../lib/remote-executor-comms');
+const { MachineTypeParams, MachineTypes } = require('../../shared/remote-run');
 // this is a copy of the job-execs.getById function
 // reason this is here is a circular dependency [SLURM -> task-handler -> models/jobs -> models/job-execs -> SLURM]
 // after this function , there is an early exports statement and late requires statatement to help with the module resolution
@@ -39,6 +40,22 @@ async function getExecutorById(context, id, includePermissions = true) {
         exec.execParams = MachineTypeParams[exec.type];
         return exec;
     });
+}
+
+async function taskRemovalCheck(tx, context, execId, taskId) {     
+    const exec = await getExecutorById(context, execId, false);
+    if (exec.type == MachineTypes.LOCAL) {
+        return;
+    }
+
+    const taskAssociationsOnExec = await tx('jobs').where('executor_id', execId).where('task', taskId).countDistinct('id as cnt').first();
+    if (taskAssociationsOnExec.cnt <= 1) {
+        // in the background, try to remove the task
+        try {
+            console.log(`remove task ${taskId} from executor id ${execId}`);
+            getRemoteHandler(exec.type).removeTask(exec, taskId);
+        } finally {  }
+    }
 }
 
 async function getRunExecutor(runId) {
@@ -327,6 +344,11 @@ async function updateWithConsistencyCheck(context, job) {
         filteredEntity.min_gap = parseTriggerStr(filteredEntity.min_gap);
         filteredEntity.trigger = parseTriggerStr(filteredEntity.trigger);
 
+        // on exec_id change
+        if (existing.executor_id !== filteredEntity.executor_id) {
+            await taskRemovalCheck(tx, context, existing.executor_id, existing.task);
+        }
+
         await tx('jobs').where('id', job.id).update(filteredEntity);
 
         if (job.signal_sets_triggers) {
@@ -354,6 +376,9 @@ async function remove(context, id) {
         for (let pair of owners) {
             await signalSets.removeById(contextHelpers.getAdminContext(), pair.set)
         }
+
+        const job = await getById(context, id, false);
+        await taskRemovalCheck(tx, context, job.executor_id, job.task);
 
         await tx('jobs').where('id', id).del();
     });

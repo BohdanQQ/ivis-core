@@ -255,13 +255,13 @@ async function runCommandsOnPeers(instanceIds, executorId, commandGenerator) {
         await waitForSSHConnection(vnic.publicIp, INSTANCE_SSH_PORT, user, 10, config.oci.instanceWaitSecs, 30);
         const commands = commandGenerator(vnic.privateIp);
         for (const command of commands) {
-            log.verbose(LOG_ID, `executing: ${command}`);
+            // log.verbose(LOG_ID, `executing: ${command}`);
             let firstError = null;
             const maxRetryCount = 3;
             let retryNum = 0;
             while (retryNum <= maxRetryCount) {
                 if (retryNum > 0) {
-                    log.verbose(LOG_ID, `Retrying the command ${command}`);
+                    log.verbose(LOG_ID, `Retrying executor creation command`);
                 }
                 try {
                     await sshWrapper({ host: vnic.publicIp, port: INSTANCE_SSH_PORT, username: user }, async (connection) => {

@@ -200,7 +200,8 @@ async function impl_getVcn() {
         } catch (err) {
             log.error(LOG_ID, 'saved VCN check failed', err);
             await stateCommons.appendToLogByType(`OCI networking error: VCN check failed, trying to recover...\nEntire state: ${JSON.stringify(state)}\nError: ${err}`, EXECUTOR_TYPE);
-            await updateStateWithDiff({ vcn: null });
+            await stateCommons.appendToLogByType(`You may want to try again or clean the global state if retries won't work`, EXECUTOR_TYPE);
+            // await updateStateWithDiff({ vcn: null });
         }
     }
     const vcnCreationResult = await setupVcnIfNeeded();

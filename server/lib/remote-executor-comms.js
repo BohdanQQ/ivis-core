@@ -24,24 +24,28 @@ const remoteExecutorHandlers = {
         stop: handleRJRStop,
         getStatus: handleRJRStatus,
         removeRun: handleRJRRemove,
+        removeTask: handleRJRRemoveTask,
     },
     [MachineTypes.OCI_BASIC]: {
         run: handleRJRRun,
         stop: handleRJRStop,
         getStatus: handleRJRStatus,
         removeRun: handleRJRRemove,
+        removeTask: handleRJRRemoveTask,
     },
     [MachineTypes.REMOTE_POOL]: {
         run: handleRJRRun,
         stop: handleRJRStop,
         getStatus: handleRJRStatus,
         removeRun: handleRJRRemove,
+        removeTask: handleRJRRemoveTask,
     },
     [MachineTypes.SLURM_POOL]: {
         run: handleSlurmRun,
         stop: handleSlurmStop,
         getStatus: handleSlurmStatus,
         removeRun: handleSlurmRemove,
+        removeTask: handleSlurmRemoveTask,
     },
 };
 Object.freeze(remoteExecutorHandlers);
@@ -105,6 +109,11 @@ async function handleRJRStatus(executionMachine, runId) {
     return await httpsClient.get(`${getMachineURLBase(executionMachine)}/run/${runId}`, { timeout: commsTimeoutMs }).then((resp) => resp.data);
 }
 
+async function handleRJRRemoveTask(executionMachine, taskId) {
+    await httpsClient.delete(`${getMachineURLBase(executionMachine)}/task/${taskId}`, { timeout: commsTimeoutMs });
+}
+
+
 async function handleSlurmRun(executionMachine, runId, jobId, spec) {
     const taskId = (await knex('jobs').where('id', jobId).first()).task;
     const task = await knex('tasks').where('id', taskId).first();
@@ -134,6 +143,11 @@ async function handleSlurmRemove(executionMachine, runId) {
 async function handleSlurmStatus(executionMachine, runId) {
     return await slurm.status(executionMachine, runId);
 }
+
+async function handleSlurmRemoveTask(executionMachine, taskId) {
+    await slurm.removeTask(executionMachine, taskId);
+}
+
 /**
  * @callback CoreSystemEmitFn
  * @param {string} emitType
@@ -163,7 +177,7 @@ async function stopRunLocally(runId, coreSystemEmission) {
 /**
  *
  * @param {string} machineType
- * @returns {{run: function, stop: function, getStatus: function, removeRun: function}}
+ * @returns {{run: function, stop: function, getStatus: function, removeRun: function, removeTask: function}}
  */
 function getRemoteHandler(machineType) {
     return remoteExecutorHandlers[machineType];
